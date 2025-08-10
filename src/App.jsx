@@ -109,6 +109,18 @@ export default function App() {
   // --- Save/Load State ---
   const [savedStates, setSavedStates] = useState/** @type {SaveState[]} */([]);
   const [showLoadModal, setShowLoadModal] = useState(false);
+
+  // Ensure collection ref exists whenever Load modal opens (after reloads)
+  useEffect(() => {
+    const _db = db || firebaseDb;
+    const _uid = userId || (firebaseAuth && firebaseAuth.currentUser ? firebaseAuth.currentUser.uid : null);
+    if (showLoadModal && _db && _uid && !savesCollectionRef.current) {
+      const path = `artifacts/${appId}/users/${_uid}/embedBuilderSaves`;
+      savesCollectionRef.current = collection(_db, path);
+      console.log("LoadModal init collection ref:", path);
+    }
+  }, [showLoadModal, db, userId]);
+
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [saveName, setSaveName] = useState("");
   const [statusMessage, setStatusMessage] = useState("");
@@ -171,11 +183,12 @@ export default function App() {
 
   // Effect to set up collection reference and load saved states
   useEffect(() => {
-    if (!userId || !db) return;
+    const _db = db || firebaseDb;
+    if (!userId || !_db) return;
 
     setLoadingStatus('loading');
     const path = `artifacts/${appId}/users/${userId}/embedBuilderSaves`;
-    savesCollectionRef.current = collection(db, path);
+    savesCollectionRef.current = collection(_db, path);
     
     const unsubscribe = onSnapshot(savesCollectionRef.current, (snapshot) => {
         const saves = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -205,16 +218,20 @@ export default function App() {
 
   // --- Save/Load/Delete Handlers ---
   const handleSave = async () => {
+      const _db = db || firebaseDb;
+      const _uid = userId || (firebaseAuth && firebaseAuth.currentUser ? firebaseAuth.currentUser.uid : null);
+      console.log("handleSave(): db?", !!_db, "uid?", _uid);
+      if (!_db || !_uid) {
+        setStatusMessage('БД/пользователь не готовы');
+        setTimeout(() => setStatusMessage(""), 2500);
+        return;
+      }
       if (!saveName.trim()) return;
 
       try {
         if (!savesCollectionRef?.current) {
-          if (!db || !userId) {
-            setStatusMessage('БД/пользователь не готовы');
-            return;
-          }
-          const path = `artifacts/${appId}/users/${userId}/embedBuilderSaves`;
-          savesCollectionRef.current = collection(db, path);
+          const path = `artifacts/${appId}/users/${_uid}/embedBuilderSaves`;
+          savesCollectionRef.current = collection(_db, path);
           console.log("Recreated collection ref:", path);
         }
 
@@ -292,17 +309,34 @@ export default function App() {
   };
 
   const handleRefreshSaves = async () => {
-      if (!savesCollectionRef.current) return;
       setIsRefreshing(true);
       try {
-          const snapshot = await getDocs(savesCollectionRef.current);
-          const saves = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-          setSavedStates(saves);
+        let ref = savesCollectionRef.current;
+        const _db = db || firebaseDb;
+        const _uid = userId || (firebaseAuth && firebaseAuth.currentUser ? firebaseAuth.currentUser.uid : null);
+        if (!ref) {
+          if (!_db || !_uid) {
+            console.warn("Refresh: DB/user not ready");
+            setStatusMessage("БД/пользователь не готовы");
+            setTimeout(() => setStatusMessage(""), 2500);
+            return;
+          }
+          const path = `artifacts/${appId}/users/${_uid}/embedBuilderSaves`;
+          ref = collection(_db, path);
+          savesCollectionRef.current = ref;
+          console.log("Refresh created collection ref:", path);
+        }
+        const snapshot = await getDocs(ref);
+        const saves = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        setSavedStates(saves);
       } catch (error) {
-          console.error("Manual refresh failed", error);
+        console.error("Manual refresh failed", error);
+        setStatusMessage("Ошибка обновления: " + (error?.code || error?.message || ""));
+      } finally {
+        setIsRefreshing(false);
+        setTimeout(() => setStatusMessage(""), 2000);
       }
-      setIsRefreshing(false);
-  };
+    };
   
   const handleAddNewEmbed = () => {
       if (!newEmbedName.trim()) return;
@@ -672,7 +706,7 @@ export default function App() {
           </form>
         </Modal>
       )}
-      {showLoadModal && ( <Modal onClose={() => setShowLoadModal(false)}> <div className="space-y-4"> <div className="flex items-center justify-between mb-2"> <h3 className="text-lg font-semibold">Загрузить проект</h3> <button onClick={handleRefreshSaves} className="px-3 py-1 text-xs rounded-md bg-gray-600 hover:bg-gray-500 disabled:opacity-50 transition-colors" disabled={isRefreshing}> {isRefreshing ? 'Обновление...' : 'Обновить'} </button> </div> <div className="space-y-2 max-h-64 overflow-y-auto pr-2"> {loadingStatus === 'loading' && <p className="text-sm text-white/50">Загрузка сохранений...</p>} {loadingStatus === 'error' && <p className="text-sm text-red-400">Ошибка загрузки.</p>} {loadingStatus === 'ready' && savedStates.length > 0 ? savedStates.map(state => ( <div key={state.id} className="flex items-center justify-between bg-[#202225] p-2 rounded-lg"> <span className="text-sm">{state.id}</span> <div className="flex gap-2"> <button onClick={() => handleLoad(state)} className="px-3 py-1 text-xs rounded-md bg-blue-600 hover:bg-blue-700">Загрузить</button> <button onClick={() => { setShowLoadModal(false); setDeleteConfirmId(state.id); }} className="px-3 py-1 text-xs rounded-md bg-red-600 hover:bg-red-700">Удалить</button> </div> </div> )) : null} {loadingStatus === 'ready' && savedStates.length === 0 && <p className="text-sm text-white/50">Нет сохраненных проектов.</p>} </div> <div className="flex justify-end"> <button onClick={() => setShowLoadModal(false)} className="px-4 py-2 rounded-md bg-[#4f545c] hover:bg-[#5d6269] text-sm">Закрыть</button> </div> </div> </Modal> )}
+      {showLoadModal && ( <Modal onClose={() => setShowLoadModal(false)}> <div className="space-y-4"> <div className="flex items-center justify-between mb-2"> <h3 className="text-lg font-semibold">Загрузить проект</h3> <button onClick={handleRefreshSaves} className="px-3 py-1 text-xs rounded-md bg-gray-600 hover:bg-gray-500 disabled:opacity-50 transition-colors" disabled={isRefreshing || !(db || firebaseDb) || !(userId || (firebaseAuth && firebaseAuth.currentUser))}> {isRefreshing ? 'Обновление...' : 'Обновить'} </button> </div> <div className="space-y-2 max-h-64 overflow-y-auto pr-2"> {loadingStatus === 'loading' && <p className="text-sm text-white/50">Загрузка сохранений...</p>} {loadingStatus === 'error' && <p className="text-sm text-red-400">Ошибка загрузки.</p>} {loadingStatus === 'ready' && savedStates.length > 0 ? savedStates.map(state => ( <div key={state.id} className="flex items-center justify-between bg-[#202225] p-2 rounded-lg"> <span className="text-sm">{state.id}</span> <div className="flex gap-2"> <button onClick={() => handleLoad(state)} className="px-3 py-1 text-xs rounded-md bg-blue-600 hover:bg-blue-700">Загрузить</button> <button onClick={() => { setShowLoadModal(false); setDeleteConfirmId(state.id); }} className="px-3 py-1 text-xs rounded-md bg-red-600 hover:bg-red-700">Удалить</button> </div> </div> )) : null} {loadingStatus === 'ready' && savedStates.length === 0 && <p className="text-sm text-white/50">Нет сохраненных проектов.</p>} </div> <div className="flex justify-end"> <button onClick={() => setShowLoadModal(false)} className="px-4 py-2 rounded-md bg-[#4f545c] hover:bg-[#5d6269] text-sm">Закрыть</button> </div> </div> </Modal> )}
       {deleteConfirmId && ( <Modal onClose={() => setDeleteConfirmId(null)}> <div className="space-y-4"> <h3 className="text-lg font-semibold">Подтверждение</h3> <p className="text-sm text-white/70">Вы уверены, что хотите удалить проект "{deleteConfirmId}"? Это действие необратимо.</p> <div className="flex justify-end gap-2"> <button onClick={() => setDeleteConfirmId(null)} className="px-4 py-2 rounded-md bg-[#4f545c] hover:bg-[#5d6269] text-sm">Отмена</button> <button onClick={handleDelete} className="px-4 py-2 rounded-md bg-red-600 hover:bg-red-700 text-sm">Удалить</button> </div> </div> </Modal> )}
       {showNewEmbedModal && ( <Modal onClose={() => setShowNewEmbedModal(false)}> <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); handleAddNewEmbed(); }}> <h3 className="text-lg font-semibold">Создать новый Embed</h3> <p className="text-sm text-white/70">Введите название для нового встраиваемого блока.</p> <input type="text" value={newEmbedName} onChange={(e) => setNewEmbedName(e.target.value)} placeholder="Название Embed'а" className={`w-full rounded-lg border ${colors.border} bg-transparent px-3 py-2 text-sm outline-none`} autoFocus /> <div className="flex justify-end gap-2"> <button type="button" onClick={() => setShowNewEmbedModal(false)} className="px-4 py-2 rounded-md bg-[#4f545c] hover:bg-[#5d6269] text-sm">Отмена</button> <button type="submit" className="px-4 py-2 rounded-md bg-indigo-600 hover:bg-indigo-500 text-sm">Создать</button> </div> </form> </Modal> )}
       {deletingEmbed && ( <Modal onClose={() => setDeletingEmbed(null)}> <div className="space-y-4"> <h3 className="text-lg font-semibold">Удалить Embed?</h3> <p className="text-sm text-white/70">Вы уверены, что хотите удалить эмбед "{deletingEmbed.name}"? Это действие нельзя будет отменить.</p> <div className="flex justify-end gap-2"> <button onClick={() => setDeletingEmbed(null)} className="px-4 py-2 rounded-md bg-[#4f545c] hover:bg-[#5d6269] text-sm">Отмена</button> <button onClick={handleDeleteEmbed} className="px-4 py-2 rounded-md bg-red-600 hover:bg-red-700 text-sm">Удалить</button> </div> </div> </Modal> )}
