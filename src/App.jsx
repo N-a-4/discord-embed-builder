@@ -1,14 +1,16 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { onAuthStateChanged } from "firebase/auth";
+import { auth as firebaseAuth, db as firebaseDb } from "../firebase.js";
 import { getApps, getApp } from "firebase/app";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
-import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "firebase/auth";
-import app from "../firebase.js";
 import { getFirestore, doc, onSnapshot, setDoc, updateDoc, collection, getDocs, deleteDoc } from "firebase/firestore";
-
 // --- Firebase Config (placeholders, will be populated by the environment) ---
 const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+// --- Global default banner ---
+const DEFAULT_BANNER_URL = "https://media.discordapp.net/attachments/1387360706835513344/1403710343938834513/vidget.png?ex=6899dc21&is=68988aa1&hm=d53f1ec9962bdc6627cb02a03b658c0efc20e8f701acb36cdcad3a79079e042d&=&format=webp&quality=lossless&width=1100&height=330";
 
 
 // --- Types (JSDoc) ---
@@ -60,7 +62,7 @@ const sanitizeItems = (items, defaultUrl) => {
 
 const sanitizeEmbed = (embed) => {
     if (!embed) return null;
-    const imageUrl = embed.imageUrl || "";
+    const imageUrl = embed.imageUrl || DEFAULT_BANNER_URL;
     return {
         id: embed.id || `embed-${Date.now()}`,
         name: embed.name || "Untitled Embed",
@@ -72,7 +74,7 @@ const sanitizeEmbed = (embed) => {
 
 // --- Default initial state for first-time users ---
 const createDefaultEmbed = (name = "Главный эмбед") => {
-    const defaultImageUrl = "https://media.discordapp.net/attachments/1387360706835513344/1403710343938834513/vidget.png?ex=68988aa1&is=68973921&hm=3e17e3665ac8b6f520167cbed22629cda3274a572bacee0ca293541ce8c4143a&&format=webp&quality=lossless&width=1100&height=330";
+    const defaultImageUrl = DEFAULT_BANNER_URL;
     return {
         id: `embed-${Date.now()}`,
         name,
@@ -185,9 +187,7 @@ export default function App() {
     });
 
     return () => unsubscribe();
-  }, [userId, db]);
-
-  // Sync banner image URL with the image block inside items
+  }, [userId, db]);// Sync banner image URL with the image block inside items
   useEffect(() => {
       if (currentEmbed) {
           const mainImageBlock = currentEmbed.items.find(item => item.type === 'image' && item.id === 'img');
@@ -205,24 +205,37 @@ export default function App() {
 
   // --- Save/Load/Delete Handlers ---
   const handleSave = async () => {
-      if (!saveName.trim() || !savesCollectionRef.current) return;
-      const docRef = doc(savesCollectionRef.current, saveName.trim());
-      const payload = {
+      if (!saveName.trim()) return;
+
+      try {
+        if (!savesCollectionRef?.current) {
+          if (!db || !userId) {
+            setStatusMessage('БД/пользователь не готовы');
+            return;
+          }
+          const path = `artifacts/${appId}/users/${userId}/embedBuilderSaves`;
+          savesCollectionRef.current = collection(db, path);
+          console.log("Recreated collection ref:", path);
+        }
+
+        const docRef = doc(savesCollectionRef.current, saveName.trim());
+        const payload = {
           embeds: embeds.map(sanitizeEmbed).filter(Boolean),
           activeEmbedId,
           customEmojis,
-      };
-      try {
-          await setDoc(docRef, payload);
-          setStatusMessage(`Проект "${saveName.trim()}" успешно сохранен!`);
-          setCurrentSaveName(saveName.trim());
+        };
+        console.log("Saving to:", docRef.path, payload);
+        await setDoc(docRef, payload);
+        setStatusMessage(`Проект "${saveName.trim()}" успешно сохранен!`);
+        setCurrentSaveName(saveName.trim());
       } catch (error) {
-          console.error("Failed to save state:", error);
-          setStatusMessage("Ошибка сохранения.");
+        console.error("Failed to save state:", error);
+        setStatusMessage("Ошибка сохранения: " + (error?.code || error?.message || ""));
+      } finally {
+        setShowSaveModal(false);
+        setTimeout(() => setStatusMessage(""), 3000);
       }
-      setShowSaveModal(false);
-      setTimeout(() => setStatusMessage(""), 3000);
-  };
+    };
 
   const handleLoad = (stateToLoad) => {
       if (!stateToLoad) return;
@@ -235,7 +248,7 @@ export default function App() {
                 id: `embed-${Date.now()}`,
                 name: stateToLoad.id || "Imported Embed",
                 items: sanitizeItems(stateToLoad.items, stateToLoad.imageUrl),
-                imageUrl: stateToLoad.imageUrl || "",
+                imageUrl: stateToLoad.imageUrl || DEFAULT_BANNER_URL,
             };
             setEmbeds([sanitizeEmbed(convertedEmbed)].filter(Boolean));
             setActiveEmbedId(convertedEmbed.id);
@@ -646,7 +659,19 @@ export default function App() {
       </div>
 
       {/* Modals */}
-      {showSaveModal && ( <Modal onClose={() => setShowSaveModal(false)}> <div className="space-y-4"> <h3 className="text-lg font-semibold">Сохранить проект</h3> <p className="text-sm text-white/70">Введите имя для вашего сохранения. Если имя уже существует, данные будут перезаписаны.</p> <input type="text" value={saveName} onChange={(e) => setSaveName(e.target.value)} placeholder="Имя моего проекта" className={`w-full rounded-lg border ${colors.border} bg-transparent px-3 py-2 text-sm outline-none`} /> <div className="flex justify-end gap-2"> <button onClick={() => setShowSaveModal(false)} className="px-4 py-2 rounded-md bg-[#4f545c] hover:bg-[#5d6269] text-sm">Отмена</button> <button onClick={handleSave} className="px-4 py-2 rounded-md bg-green-600 hover:bg-green-700 text-sm">Сохранить</button> </div> </div> </Modal> )}
+      {showSaveModal && (
+        <Modal onClose={() => setShowSaveModal(false)}>
+          <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); handleSave(); }}>
+            <h3 className="text-lg font-semibold">Сохранить проект</h3>
+            <p className="text-sm text-white/70">Введите имя для вашего сохранения. Если имя уже существует, данные будут перезаписаны.</p>
+            <input type="text" value={saveName} onChange={(e) => setSaveName(e.target.value)} placeholder="Имя моего проекта" className={`w-full rounded-lg border ${colors.border} bg-transparent px-3 py-2 text-sm outline-none`} />
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => setShowSaveModal(false)} className="px-4 py-2 rounded-md bg-[#4f545c] hover:bg-[#5d6269] text-sm">Отмена</button>
+              <button type="submit" className="px-4 py-2 rounded-md bg-green-600 hover:bg-green-700 text-sm">Сохранить</button>
+            </div>
+          </form>
+        </Modal>
+      )}
       {showLoadModal && ( <Modal onClose={() => setShowLoadModal(false)}> <div className="space-y-4"> <div className="flex items-center justify-between mb-2"> <h3 className="text-lg font-semibold">Загрузить проект</h3> <button onClick={handleRefreshSaves} className="px-3 py-1 text-xs rounded-md bg-gray-600 hover:bg-gray-500 disabled:opacity-50 transition-colors" disabled={isRefreshing}> {isRefreshing ? 'Обновление...' : 'Обновить'} </button> </div> <div className="space-y-2 max-h-64 overflow-y-auto pr-2"> {loadingStatus === 'loading' && <p className="text-sm text-white/50">Загрузка сохранений...</p>} {loadingStatus === 'error' && <p className="text-sm text-red-400">Ошибка загрузки.</p>} {loadingStatus === 'ready' && savedStates.length > 0 ? savedStates.map(state => ( <div key={state.id} className="flex items-center justify-between bg-[#202225] p-2 rounded-lg"> <span className="text-sm">{state.id}</span> <div className="flex gap-2"> <button onClick={() => handleLoad(state)} className="px-3 py-1 text-xs rounded-md bg-blue-600 hover:bg-blue-700">Загрузить</button> <button onClick={() => { setShowLoadModal(false); setDeleteConfirmId(state.id); }} className="px-3 py-1 text-xs rounded-md bg-red-600 hover:bg-red-700">Удалить</button> </div> </div> )) : null} {loadingStatus === 'ready' && savedStates.length === 0 && <p className="text-sm text-white/50">Нет сохраненных проектов.</p>} </div> <div className="flex justify-end"> <button onClick={() => setShowLoadModal(false)} className="px-4 py-2 rounded-md bg-[#4f545c] hover:bg-[#5d6269] text-sm">Закрыть</button> </div> </div> </Modal> )}
       {deleteConfirmId && ( <Modal onClose={() => setDeleteConfirmId(null)}> <div className="space-y-4"> <h3 className="text-lg font-semibold">Подтверждение</h3> <p className="text-sm text-white/70">Вы уверены, что хотите удалить проект "{deleteConfirmId}"? Это действие необратимо.</p> <div className="flex justify-end gap-2"> <button onClick={() => setDeleteConfirmId(null)} className="px-4 py-2 rounded-md bg-[#4f545c] hover:bg-[#5d6269] text-sm">Отмена</button> <button onClick={handleDelete} className="px-4 py-2 rounded-md bg-red-600 hover:bg-red-700 text-sm">Удалить</button> </div> </div> </Modal> )}
       {showNewEmbedModal && ( <Modal onClose={() => setShowNewEmbedModal(false)}> <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); handleAddNewEmbed(); }}> <h3 className="text-lg font-semibold">Создать новый Embed</h3> <p className="text-sm text-white/70">Введите название для нового встраиваемого блока.</p> <input type="text" value={newEmbedName} onChange={(e) => setNewEmbedName(e.target.value)} placeholder="Название Embed'а" className={`w-full rounded-lg border ${colors.border} bg-transparent px-3 py-2 text-sm outline-none`} autoFocus /> <div className="flex justify-end gap-2"> <button type="button" onClick={() => setShowNewEmbedModal(false)} className="px-4 py-2 rounded-md bg-[#4f545c] hover:bg-[#5d6269] text-sm">Отмена</button> <button type="submit" className="px-4 py-2 rounded-md bg-indigo-600 hover:bg-indigo-500 text-sm">Создать</button> </div> </form> </Modal> )}
