@@ -1,15 +1,173 @@
-// == Build note ==
+// == Build note ==// --- 3-state pill toggle for statuses: "Готово" | "В работе" | "Ожидание"
+
+// ---- auto-prune helpers (remove empty blocks) ----
+const isEmptyRichText = (v) => {
+  if (v == null) return true;
+  if (typeof v === "string") return v.trim().length === 0;
+  try {
+    const s = JSON.stringify(v);
+    return !s || s === "[]" || s === "{}";
+  } catch { return false; }
+};
+const isEmptyItem = (item) => {
+  if (!item) return true;
+  const t = item.type || item.mode;
+  switch (t) {
+    case "text":
+    case "paragraph":
+    case "header":
+    case "title":
+      return isEmptyRichText(item.text || item.value || item.content);
+    case "buttons":
+      if (!Array.isArray(item.buttons) || item.buttons.length === 0) return true;
+      return item.buttons.every((b) => !b || (!String(b.text || b.label || "").trim() && !b.linkToEmbedId && !b.href));
+    case "image":
+      return !(item.url && String(item.url).trim());
+    case "divider":
+    case "spacer":
+      return item.height === 0 || item.size === 0;
+    case "group":
+    case "container":
+      return !Array.isArray(item.items) || item.items.length === 0;
+    default:
+      return false;
+  }
+};
+const pruneEmptyItems = (items) => {
+  if (!Array.isArray(items)) return items;
+  const out = [];
+  for (const raw of items) {
+    if (!raw) continue;
+    let item = raw;
+    if (Array.isArray(item.items)) {
+      item = { ...item, items: pruneEmptyItems(item.items) };
+    }
+    if (!isEmptyItem(item)) out.push(item);
+  }
+  return out;
+};
+// ---- end auto-prune helpers ----
+
+
+function StatusToggle3({ value, onChange, disabled = false }) {
+  const toIndex = (s) => {
+    if (!s) return 1;
+    if (s === 'done' || s === 'Готово') return 0;
+    if (s === 'inprogress' || s === 'В работе') return 1;
+    return 2; // waiting | pending | Ожидание
+  };
+  const i = toIndex(value);
+ const pillColor = (i === 0 ? "bg-[#93d36f]" : i === 1 ? "bg-[#e8ab5c]" : "bg-gradient-to-r from-slate-400 to-slate-500");
+const translate = i === 0
+    ? "translate-x-0"
+    : i === 1
+    ? "translate-x-[calc(100%+2px)]"
+    : "translate-x-[calc(200%+2px)]";
+
+  const pillBg = i === 0 ? "#93d36f" : i === 1 ? "#e8ab5c" : "#6366F1";
+  const glow = i === 0 ? "0 2px 14px rgba(147,211,111,0.35)" : i === 1 ? "0 2px 14px rgba(232,171,92,0.35)" : "0 2px 14px rgba(106,138,236,0.35)";
+
+
+  return (
+    <div className="relative inline-grid grid-cols-3 items-center rounded-[0.75rem] bg-[#1f2226] border border-[#33363a] select-none">
+      <span
+        className={`pointer-events-none absolute top-[2px] left-[2px] bottom-[2px] w-[calc(33.333%-2px)] rounded-[0.75rem] transition-transform transition-colors duration-200 ease-out ${translate} ${pillColor}`}
+        style={{ backgroundColor: pillBg, boxShadow: glow }}
+      />
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => !disabled && onChange && onChange("Готово")}
+        className={`relative z-10 h-8 px-3 text-xs font-medium rounded-none bg-transparent border-0 hover:border-0 focus:border-0 focus-visible:border-0 active:border-0 hover:bg-transparent border-0 hover:border-0 focus:border-0 focus-visible:border-0 active:border-0 hover:border-none active:bg-transparent border-0 hover:border-0 focus:border-0 focus-visible:border-0 active:border-0 focus:bg-transparent border-0 hover:border-0 focus:border-0 focus-visible:border-0 active:border-0 outline-none focus:outline-none focus-visible:outline-none focus:ring-0 focus-visible:ring-0 ${i===0 ? "text-white" : "text-white/70"}`}
+        style={{ backgroundColor: "transparent", border: "none" }}
+      >
+        Готово
+      </button>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => !disabled && onChange && onChange("В работе")}
+        className={`relative z-10 h-8 px-3 text-xs font-medium rounded-none bg-transparent border-0 hover:border-0 focus:border-0 focus-visible:border-0 active:border-0 hover:bg-transparent border-0 hover:border-0 focus:border-0 focus-visible:border-0 active:border-0 hover:border-none active:bg-transparent border-0 hover:border-0 focus:border-0 focus-visible:border-0 active:border-0 focus:bg-transparent border-0 hover:border-0 focus:border-0 focus-visible:border-0 active:border-0 outline-none focus:outline-none focus-visible:outline-none focus:ring-0 focus-visible:ring-0 ${i===1 ? "text-white" : "text-white/70"}`}
+        style={{ backgroundColor: "transparent", border: "none" }}
+      >
+        В работе
+      </button>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => !disabled && onChange && onChange("Ожидание")}
+        className={`relative z-10 h-8 px-3 text-xs font-medium rounded-none bg-transparent border-0 hover:border-0 focus:border-0 focus-visible:border-0 active:border-0 hover:bg-transparent border-0 hover:border-0 focus:border-0 focus-visible:border-0 active:border-0 hover:border-none active:bg-transparent border-0 hover:border-0 focus:border-0 focus-visible:border-0 active:border-0 focus:bg-transparent border-0 hover:border-0 focus:border-0 focus-visible:border-0 active:border-0 outline-none focus:outline-none focus-visible:outline-none focus:ring-0 focus-visible:ring-0 ${i===2 ? "text-white" : "text-white/70"}`}
+        style={{ backgroundColor: "transparent", border: "none" }}
+      >
+        Ожидание
+      </button>
+    </div>
+  );
+}
+
+
+// --- helpers: treat both localized and canonical codes ---
+function isDoneStatus(s) {
+  return s === 'done' || s === 'Готово';
+}
+function isInProgressStatus(s) {
+  return s === 'inprogress' || s === 'В работе';
+}
+function isPendingStatus(s) {
+  return s === 'pending' || s === 'Ожидание';
+}
 // Date: 2025-08-19
 // Change: Wrap the main JSX of InnerApp with <AuthUiContext.Provider> so AuthProfileBar always receives auth context.
 // File tag: mini-profile-fix_v2
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { exportEmbedV2, exportEmbedCode, downloadText } from "./rustify_embed_export_v1.js"; // [EXPORTER]
+import './emoji_store.js'; // Global Emoji Store init
+// --- Lightweight toast utility (DOM-based, no JSX changes) ---
+(function(){
+  try{
+    if (typeof window==='undefined') return;
+    const ensure = () => {
+      let el = document.getElementById('rustify-toasts');
+      if (!el){
+        el = document.createElement('div');
+        el.id = 'rustify-toasts';
+        el.style.cssText = 'position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:99999;display:flex;flex-direction:column;gap:8px;align-items:center;pointer-events:none';
+        if (document.body) document.body.appendChild(el);
+        else document.addEventListener('DOMContentLoaded', () => {
+          if (!document.getElementById('rustify-toasts') && document.body) document.body.appendChild(el);
+        });
+      }
+      return el;
+    };
+    const show = (kind, message) => {
+      try{
+        const el = ensure();
+        const item = document.createElement('div');
+        item.style.cssText = 'pointer-events:auto;border-radius:12px;padding:8px 14px;color:white;box-shadow:0 6px 20px rgba(0,0,0,.2);max-width:92vw;font-weight:500;';
+        item.style.background = (kind === 'error') ? '#dc2626' : '#059669';
+        item.textContent = message;
+        el.appendChild(item);
+        setTimeout(() => {
+          item.style.transition = 'all .25s';
+          item.style.opacity = '0';
+          item.style.transform = 'translateY(-6px)';
+        }, 2000);
+        setTimeout(() => { try{ el.removeChild(item); }catch{} }, 2300);
+      }catch{}
+    };
+    window.RustifyToast = { show };
+  }catch{}
+})();
+// --- Lightweight toast utility (DOM-based, no JSX changes) ---
+(function(){try{if(typeof window==='undefined') return;const id='rustify-toasts';if(!document.getElementById(id)){const el=document.createElement('div');el.id=id;el.style.cssText='position:fixed;top:12px;right:12px;z-index:99999;display:flex;flex-direction:column;gap:8px;pointer-events:none';document.addEventListener('DOMContentLoaded',()=>{if(!document.getElementById(id)) document.body.appendChild(el);});if(document.body) document.body.appendChild(el);}window.RustifyToast={show:(kind,msg)=>{try{const el=document.getElementById(id);if(!el) return;const b=document.createElement('div');b.textContent=msg;b.style.cssText='background:'+ (kind==='error'?'#dc2626':'#059669') +';color:white;padding:8px 12px;border-radius:12px;box-shadow:0 4px 16px rgba(0,0,0,.25);font-size:13px;pointer-events:auto';el.appendChild(b);setTimeout(()=>{b.style.opacity='0';b.style.transition='opacity .35s';setTimeout(()=>{b.remove();},380);},2200);}catch{}}};}catch{}})();
+const DEV_EXPORT = true; // [EXPORTER] toggle dev tools
 // removed duplicate isReadOnlyDev var
 import { onAuthStateChanged, getAuth, signInWithCustomToken, signInAnonymously, signInWithEmailAndPassword, signOut } from "firebase/auth";
 import { auth as firebaseAuth, db as firebaseDb } from "../firebase.js";
 import { getApps, getApp, initializeApp } from "firebase/app";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
-import { getFirestore, doc, onSnapshot, setDoc, updateDoc, collection, getDocs, deleteDoc } from "firebase/firestore";
+import { query, limit, collection, deleteDoc, doc, getDocs, getFirestore, onSnapshot, setDoc, updateDoc, getDoc } from "firebase/firestore";
 // --- Firebase Config (placeholders, will be populated by the environment) ---
 const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
@@ -216,7 +374,7 @@ function LoginForm() {
  <input type="password" required value={password} onChange={(e)=>setPassword(e.target.value)} className="w-full h-10 px-3 rounded-lg border border-white/20 bg-white/5 outline-none" placeholder="••••••••" />
  </label>
  {err && <div className="mb-2 text-xs text-red-300">{err}</div>}
- <button type="submit" disabled={loading} className="w-full h-10 rounded-lg border border-white/20 bg-white/10 hover:bg-white/15 h-9 flex items-center justify-center focus:outline-none focus:ring-0">
+ <button type="submit" disabled={loading} className="w-full h-10 rounded-lg border border-white/20 bg-white/10 hover:bg-white/15 h-9 flex items-center justify-center focus:outline-none focus:border-none focus-visible:outline-none focus-visible:border-none focus:ring-0 focus-visible:ring-0">
  {loading ? "Входим…" : "Войти"}
  </button>
  </form>
@@ -241,7 +399,7 @@ function AuthProfileBar() {
  <span className="text-xs font-medium truncate max-w-[140px]">{user.email || "user"}</span>
  </div>
  <button
- className="h-7 px-2.5 rounded-md bg-red-600 hover:bg-red-700 text-xs font-medium shrink-0 flex items-center justify-center leading-none focus:outline-none focus:ring-0"
+ className="h-7 px-2.5 rounded-md bg-red-600 hover:bg-red-700 text-xs font-medium shrink-0 flex items-center justify-center leading-none focus:outline-none focus:border-none focus-visible:outline-none focus-visible:border-none focus:ring-0 focus-visible:ring-0"
  onClick={onLogout}
  >
  Выйти
@@ -252,6 +410,28 @@ function AuthProfileBar() {
 }
 
 function InnerApp() {
+  // --- Live subscribe for embed statuses ---
+  const [remoteEmbedStatuses, setRemoteEmbedStatuses] = React.useState({});
+  React.useEffect(() => {
+    try {
+      const _db = db || firebaseDb;
+      const current = (firebaseAuth && firebaseAuth.currentUser) ? firebaseAuth.currentUser : null;
+      const devNow = current && (current.uid === DEV_UID || current.email === DEV_EMAIL);
+      const _uid = devNow ? OWNER_UID : (current ? current.uid : null);
+      if (!_db || !_uid) return;
+      const colRef = collection(_db, `artifacts/${appId}/users/${_uid}/embedStatuses`);
+      const unsub = onSnapshot(colRef, (qs) => {
+        const m = {};
+        qs.forEach(docSnap => {
+          const d = docSnap.data();
+          if (d && typeof d.status === "string") m[docSnap.id] = d.status;
+        });
+        setRemoteEmbedStatuses(m);
+      });
+      return () => { try { unsub && unsub(); } catch {} };
+    } catch (e) { console.error("subscribe embedStatuses:", e); }
+  }, [appId]);
+
 
  // --- Firebase State ---
  const [db, setDb] = useState(null);
@@ -265,6 +445,7 @@ function InnerApp() {
  
  // --- Save/Load State ---
  const [savedStates, setSavedStates] = useState/** @type {SaveState[]} */([]);
+ const [isLoadedProject, setIsLoadedProject] = useState(false);
  const [showLoadModal, setShowLoadModal] = useState(false);
 
  // Ensure collection ref exists whenever Load modal opens (after reloads)
@@ -272,7 +453,7 @@ function InnerApp() {
  const _db = db || firebaseDb;
  const current = firebaseAuth && firebaseAuth.currentUser ? firebaseAuth.currentUser : null;
  const devNow = current && (current.uid === DEV_UID || current.email === DEV_EMAIL);
- const _uid = devNow ? OWNER_UID : (userId || (current ? current.uid : null));
+ const _uid = devNow ? OWNER_UID : (current ? current.uid : null);
  if (showLoadModal && _db && _uid && !savesCollectionRef.current) {
  const path = `artifacts/${appId}/users/${_uid}/embedBuilderSaves`;
  savesCollectionRef.current = collection(_db, path);
@@ -317,9 +498,115 @@ const [embeds, setEmbeds] = useState(() => [createDefaultEmbed()]);
  useEffect(() => {
  
  }, [activeMiniEmbedId]);
-const [customEmojis, setCustomEmojis] = useState([
- { name: 'rust', url: 'https://cdn.discordapp.com/emojis/1403718114385854576.webp?size=128' }
- ]);
+const [customEmojis, setCustomEmojis] = useState([]);
+
+  // === Global emoji sync helpers ===
+  const debounce = (fn, ms=600) => { let t=null; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), ms); }; };
+
+  const syncFromGlobal = React.useCallback(() => {
+    try{
+      if (!window?.RustifyEmojiStore) return;
+      const all = window.RustifyEmojiStore.getAll();
+      const flat = Array.isArray(all) ? all.map(e => ({ name: e?.name || '', url: (e?.urls && e.urls[0]) || '' })) : [];
+      setCustomEmojis(flat.filter(x => x.name && x.url));
+    }catch{}
+  }, []);
+
+  // app-level Firestore doc
+  const getAppGlobalRef = React.useCallback(() => doc(firebaseDb, 'artifacts', appId || 'default-app-id', 'globals', 'globalEmojis'), [firebaseDb, appId]);
+
+  
+
+const setGlobalFromStore = React.useCallback(async () => {
+  try{
+    // Prefer React state (customEmojis) — в нём есть ручной id
+    const storeAll = (window && window.RustifyEmojiStore && typeof window.RustifyEmojiStore.getAll === 'function')
+      ? window.RustifyEmojiStore.getAll() : [];
+    const list = Array.isArray(customEmojis) && customEmojis.length ? customEmojis : (Array.isArray(storeAll) ? storeAll : []);
+
+    // Собираем плоский массив без undefined-полей (Firestore их не принимает)
+    const flat = (list || []).map(e => {
+      const obj = {
+        name: e?.name ? String(e.name) : '',
+        url:  e?.url ? String(e.url) : (e?.urls && e.urls[0] ? String(e.urls[0]) : ''),
+      };
+      if (e && e.id != null && String(e.id).trim() !== '') {
+        obj.id = String(e.id).trim();
+      }
+      return obj;
+    }).filter(x => x.name && x.url);
+
+    const payload = { emojis: flat, list: flat, updatedAt: Date.now() };
+    console.log('[EMOJI_SAVE] flat', flat);
+    console.table(flat);
+    console.log('[EMOJI_SAVE] payload', payload); // TEMP LOG
+    await setDoc(getAppGlobalRef(), payload, { merge: true });
+    try { const snap = await getDoc(getAppGlobalRef()); console.log('[EMOJI_SAVED] doc', snap.exists() ? snap.data() : null); } catch(err) { console.warn('post-save getDoc failed', err); }
+    window.RustifyToast && window.RustifyToast.show('success', 'Глобальные эмодзи сохранены');
+  }catch(e){
+    console.error('setGlobalFromStore failed', e);
+    window.RustifyToast && window.RustifyToast.show('error', 'Ошибка сохранения глобальных эмодзи');
+  }
+}, [getAppGlobalRef, customEmojis]);
+
+
+
+  const queueSaveGlobal = React.useMemo(() => debounce(setGlobalFromStore, 600), [setGlobalFromStore]);
+
+  // On mount: always sync from global store and subscribe to Firestore (APP-LEVEL ONLY)
+  React.useEffect(() => {
+    // Local storage → UI
+    try{
+      syncFromGlobal();
+      const onStorage = (ev) => { if (ev.key === 'RUSTIFY_GLOBAL_EMOJIS_V1') syncFromGlobal(); };
+      window.addEventListener('storage', onStorage);
+      return () => window.removeEventListener('storage', onStorage);
+    }catch{}
+  }, [syncFromGlobal]);
+
+  React.useEffect(() => {
+    let unsub = null;
+    (async () => {
+      try{
+        const ref = getAppGlobalRef();
+        const snap = await getDoc(ref);
+        const data = snap.exists() ? snap.data() : null;
+        if (data && Array.isArray(data.emojis) && data.emojis.length){
+          if (window?.RustifyEmojiStore?.setAll){
+            window.RustifyEmojiStore.setAll(data.emojis.map(e => ({ id: null, name: e?.name || '', urls: [e?.url || ''], aliases: [] })));
+          }
+          syncFromGlobal();
+        } else {
+          if (window?.RustifyEmojiStore && (window.RustifyEmojiStore.getAll()?.length || 0) > 0){
+            await setGlobalFromStore();
+          }
+        }
+        unsub = onSnapshot(ref, (snap) => {
+          const d = snap.exists() ? snap.data() : null;
+          if (d && Array.isArray(d.emojis)){
+            if (window?.RustifyEmojiStore?.setAll){
+              window.RustifyEmojiStore.setAll(d.emojis.map(e => ({ id: null, name: e?.name || '', urls: [e?.url || ''], aliases: [] })));
+              syncFromGlobal();
+            }
+          }
+        });
+      }catch(e){ console.error('global emojis subscription failed', e); }
+    })();
+    return () => { try{ unsub && unsub(); }catch{} };
+  }, [getAppGlobalRef, syncFromGlobal, setGlobalFromStore]);
+  
+  // Bridge for exporter
+  React.useEffect(() => {
+    try{
+      if (typeof window !== 'undefined' && window.RustifyEmojiStore) {
+        const all = window.RustifyEmojiStore.getAll();
+        const flat = Array.isArray(all) ? all.map(e => ({ name: e?.name || '', url: (e?.urls && e.urls[0]) || '' })) : [];
+        window.__RUSTIFY_CUSTOM_EMOJIS__ = flat.filter(x => x.name && x.url);
+        window.__RUSTIFY_PROJECT_EMOJIS__ = Array.isArray(customEmojis) ? customEmojis : [];
+      }
+    }catch(e){}
+  }, [customEmojis]);
+
  // --- Emoji search state (live filter) ---
  const [emojiQuery, setEmojiQuery] = useState('');
  const visibleEmojis = useMemo(() => {
@@ -333,9 +620,38 @@ const [customEmojis, setCustomEmojis] = useState([
  const currentEmbed = useMemo(() => {
  if (activeMiniEmbedId && parentEmbed && Array.isArray(parentEmbed.miniEmbeds)) {
  return parentEmbed.miniEmbeds.find(m => m.id === activeMiniEmbedId) || parentEmbed;
+
  }
  return parentEmbed;
  }, [parentEmbed, activeMiniEmbedId]);
+  const effectiveCurrentStatus = (remoteEmbedStatuses?.[activeMiniEmbedId ?? activeEmbedId]) ?? (currentEmbed ? currentEmbed.status : undefined) ?? "Ожидание";
+// Hide statuses for brand-new projects (no saved docs yet)
+const [hasSavedProjects, setHasSavedProjects] = React.useState(false);
+React.useEffect(() => {
+  let cancelled = false;
+  (async () => {
+    try {
+      const _db = db || firebaseDb;
+      const current = (firebaseAuth && firebaseAuth.currentUser) ? firebaseAuth.currentUser : null;
+      const devNow = current && (current.uid === DEV_UID || current.email === DEV_EMAIL);
+      const _uid = devNow ? OWNER_UID : (current ? current.uid : null);
+      const appId = (typeof __app_id !== 'undefined') ? __app_id : 'default-app-id';
+      if (!_db || !_uid) { if (!cancelled) setHasSavedProjects(false); return; }
+      const savesCol = collection(_db, "artifacts", appId, "users", _uid, "embedBuilderSaves");
+      try {
+        const snap = await getDocs(query(savesCol, limit(1)));
+        if (!cancelled) setHasSavedProjects(!snap.empty);
+      } catch {
+        const snap = await getDocs(savesCol);
+        if (!cancelled) setHasSavedProjects(!snap.empty);
+      }
+    } catch {
+      if (!cancelled) setHasSavedProjects(false);
+    }
+  })();
+  return () => { cancelled = true; };
+}, []);
+
 
  useEffect(() => { }, [parentEmbed, currentEmbed, activeMiniEmbedId]);
  useEffect(() => {
@@ -377,11 +693,22 @@ const [customEmojis, setCustomEmojis] = useState([
  setEmbeds(prev => prev.map(e => {
  if (e.id !== activeEmbedId) return e;
  const list = Array.isArray(e.miniEmbeds) ? e.miniEmbeds : [];
- const nextList = list.map(m => m.id === activeMiniEmbedId ? { ...m, ...patch } : m);
+ const nextList = list.map(m => {
+  if (m.id !== activeMiniEmbedId) return m;
+  const updated = { ...m, ...patch };
+  updated.items = pruneEmptyItems(updated.items);
+  return updated;
+});
  return { ...e, miniEmbeds: nextList };
+
  }));
  } else {
- setEmbeds(prev => prev.map(e => e.id === activeEmbedId ? { ...e, ...patch } : e));
+ setEmbeds(prev => prev.map(e => {
+  if (e.id !== activeEmbedId) return e;
+  const updated = { ...e, ...patch };
+  updated.items = pruneEmptyItems(updated.items);
+  return updated;
+}));
  }
  };
  
@@ -397,7 +724,67 @@ if ((!modals || !modals.length) && typeof window !== 'undefined') {
 const setModals = (updater) => {
  const next = (typeof updater === 'function') ? updater(modals) : updater;
  updateCurrentEmbed({ modals: Array.isArray(next) ? next : [] });
-}; // [{id, title}] // [{id, title}]
+};
+
+// === Status helper: updates 'status' in the current embed ===
+function setEmbedStatus(status) {
+  const ok = ['done','inprogress','waiting',null,undefined];
+  const s = ok.includes(status) ? status : 'waiting';
+  updateCurrentEmbed({ status: s });
+}
+
+// --- Per-embed status: minimal Firestore write (no full project overwrite) ---
+async function persistEmbedStatus(nextStatus) {
+  try {
+    const _db = db || firebaseDb;
+    const current = (firebaseAuth && firebaseAuth.currentUser) ? firebaseAuth.currentUser : null;
+    const devNow = current && (current.uid === DEV_UID || current.email === DEV_EMAIL);
+    const _uid = devNow ? OWNER_UID : (current ? current.uid : null);
+    const appId = (typeof __app_id !== 'undefined') ? __app_id : 'default-app-id';
+
+    // Stable embed id (mini first, else parent)
+    const embedId = (activeMiniEmbedId ?? activeEmbedId);
+    if (!_db || !_uid || !embedId) return;
+
+    // Guard: only if there's at least one saved project
+    const savesCol = collection(_db, `artifacts/${appId}/users/${_uid}/embedBuilderSaves`);
+    const savesSnap = await getDocs(savesCol);
+    if (savesSnap.empty) {
+      try { showToast && showToast("Сначала сохраните проект", "error"); } catch {}
+      return;
+    }
+
+    // Normalize status to canonical form for rules
+    const map = { "Готово": "done", "В работе": "inprogress", "Ожидание": "pending" };
+    const canonical = map[nextStatus] || nextStatus;
+
+    // Write to lightweight subcollection
+    const statusDocRef = doc(collection(_db, `artifacts/${appId}/users/${_uid}/embedStatuses`), embedId);
+    await setDoc(statusDocRef, { status: canonical, updatedAt: Date.now() }, { merge: true });
+  } catch (e) {
+    console.error("persistEmbedStatus failed:", e);
+    throw e;
+  }
+}
+
+/**
+ * Click handler for status chips: optimistic local update + minimal Firestore write.
+ * Keeps global "Сохранить" behavior intact for full project saves.
+ */
+async function handleStatusClick(nextStatus) {
+  // Optimistic UI
+  setEmbedStatus(nextStatus);
+  try {
+    await persistEmbedStatus(nextStatus);
+  try { setStatusMessage && setStatusMessage("Новый статус Embed сохранен"); setTimeout(() => setStatusMessage && setStatusMessage(""), 1400); } catch {}
+  } catch (e) {
+    try { setStatusMessage && setStatusMessage("Не удалось сохранить статус"); } catch {}
+  } finally {
+    try { setTimeout(() => setStatusMessage && setStatusMessage(""), 1500); } catch {}
+  }
+}
+
+ // [{id, title}] // [{id, title}]
 // --- Mini-Embeds (right sidebar) ---
 const miniEmbeds = (parentEmbed && Array.isArray(parentEmbed.miniEmbeds)) ? parentEmbed.miniEmbeds : [];
 const setMiniEmbeds = (updater) => {
@@ -615,7 +1002,7 @@ const handleCloseModal = () => { setModalMode(null); setActiveModalId(null); };
  const _db = db || firebaseDb;
  const current = firebaseAuth && firebaseAuth.currentUser ? firebaseAuth.currentUser : null;
  const devNow = current && (current.uid === DEV_UID || current.email === DEV_EMAIL);
- const _uid = devNow ? OWNER_UID : (userId || (current ? current.uid : null));
+ const _uid = devNow ? OWNER_UID : (current ? current.uid : null);
  
  if (!_db || !_uid) {
  setStatusMessage('БД/пользователь не готовы');
@@ -654,8 +1041,7 @@ const handleCloseModal = () => { setModalMode(null); setActiveModalId(null); };
  const handleLoad = (stateToLoad) => {
  if (!stateToLoad) return;
  try {
- const defaultEmojis = [{ name: 'rust', url: 'https://cdn.discordapp.com/emojis/1403718114385854576.webp?size=128' }];
- setCustomEmojis(Array.isArray(stateToLoad.customEmojis) ? stateToLoad.customEmojis : defaultEmojis);
+ try { const all = window?.RustifyEmojiStore?.getAll?.() || []; const flat = Array.isArray(all) ? all.map(e => ({ name: e?.name || '', url: (e?.urls && e.urls[0]) || '' })) : []; setCustomEmojis(flat.filter(x => x.name && x.url)); } catch { setCustomEmojis(Array.isArray(stateToLoad.customEmojis) ? stateToLoad.customEmojis : []); }
  // --- BACKWARD COMPATIBILITY CHECK ---
  if (stateToLoad.items && !stateToLoad.embeds) {
  const convertedEmbed = {
@@ -682,6 +1068,7 @@ const handleCloseModal = () => { setModalMode(null); setActiveModalId(null); };
  
  setCurrentSaveName(stateToLoad.id);
  setShowLoadModal(false);
+  setIsLoadedProject(true);
  setStatusMessage(`Проект "${stateToLoad.id}" загружен.`);
  } catch (error) {
  console.error("Failed to load and sanitize state:", error);
@@ -714,7 +1101,7 @@ const handleCloseModal = () => { setModalMode(null); setActiveModalId(null); };
  const _db = db || firebaseDb;
  const current = firebaseAuth && firebaseAuth.currentUser ? firebaseAuth.currentUser : null;
  const devNow = current && (current.uid === DEV_UID || current.email === DEV_EMAIL);
- const _uid = devNow ? OWNER_UID : (userId || (current ? current.uid : null));
+ const _uid = devNow ? OWNER_UID : (current ? current.uid : null);
  if (!ref) {
  if (!_db || !_uid) {
  
@@ -878,8 +1265,8 @@ const handleAddSecondaryEmbed = () => {
         const style = document.createElement('style');
         style.id = '__sel_hover_css';
         style.textContent = `
-          .__sel_hover_outline{ outline:2px solid #94db6b !important; outline-offset:2px; border-radius:10px; }
-          .__cmt_hl.__sel_hover_outline{ outline:2px solid #94db6b !important; outline-offset:2px; border-radius:10px; } /* don't stack outlines */
+          .__sel_hover_outline{ outline:2px solid #9ec070 !important; outline-offset:2px; border-radius:10px; }
+          .__cmt_hl.__sel_hover_outline{ outline:2px solid #9ec070 !important; outline-offset:2px; border-radius:10px; } /* don't stack outlines */
           /* during comment picking, hide native focus/box-shadows inside work area to avoid double rims */
           .comment-pick *{ box-shadow: none !important; }
           .comment-pick *:not(.__sel_hover_outline){ outline: none !important; }
@@ -1169,7 +1556,7 @@ appBg: "bg-[#1E1F22]",
  border: "border-[#202225]",
  accent: "bg-[#424249]",
  subtle: "text-[#A3A6AA]",
- rustify: "#94db6b",
+ rustify: "#9ec070",
  secondaryBtn: "bg-[#4f545c] hover:bg-[#5d6269]",
  linkBtn: "bg-[#4f545c] hover:bg-[#5d6269]",
  primaryBtn: "bg-[#5865F2] hover:bg-[#4752C4] text-white",
@@ -1183,38 +1570,38 @@ appBg: "bg-[#1E1F22]",
  updateCurrentEmbed({ items: modifier(currentEmbed.items || []) });
  };
 
-// Move a block (by id) up or down among visible items (footer excluded)
+// Move a block (by id) up or down among visible items (footer excluded STRICTLY)
 const moveBlock = (blockId, delta) => {
- if (!currentEmbed || !Array.isArray(currentEmbed.items)) return;
- modifyItems(prev => {
- const items = [...prev];
- // Indices of visible (non-footer) items
- const visibleIdxs = [];
- for (let i = 0; i < items.length; i++) {
- const it = items[i];
- if (!(it && it.type === 'buttons' && it.position === 'footer')) {
- visibleIdxs.push(i);
- }
- }
- // Current position of the block within visible list
- let pos = -1;
- for (let k = 0; k < visibleIdxs.length; k++) {
- const realIdx = visibleIdxs[k];
- if (items[realIdx] && items[realIdx].id === blockId) { pos = k; break; }
- }
- if (pos < 0) return prev;
- const nextPos = pos + (delta < 0 ? -1 : 1);
- if (nextPos < 0 || nextPos >= visibleIdxs.length) return prev; // can't move
- const i = visibleIdxs[pos];
- const j = visibleIdxs[nextPos];
- const next = [...items];
- const tmp = next[i];
- next[i] = next[j];
- next[j] = tmp;
- return next;
- });
- // Keep selection/focus after move
- setSelectedBlockId(blockId);
+  if (!currentEmbed || !Array.isArray(currentEmbed.items)) return;
+  modifyItems(prev => {
+    const items = [...prev];
+    // Indices of visible (non-footer) items: exclude ANY item with position === 'footer'
+    const visibleIdxs = [];
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      if (!(it && it.position === 'footer')) {
+        visibleIdxs.push(i);
+      }
+    }
+    // Current position of the block within visible list
+    let pos = -1;
+    for (let k = 0; k < visibleIdxs.length; k++) {
+      const realIdx = visibleIdxs[k];
+      if (items[realIdx] && items[realIdx].id === blockId) { pos = k; break; }
+    }
+    if (pos < 0) return prev;
+    const nextPos = pos + (delta < 0 ? -1 : 1);
+    if (nextPos < 0 || nextPos >= visibleIdxs.length) return prev; // can't move
+    const i = visibleIdxs[pos];
+    const j = visibleIdxs[nextPos];
+    const next = [...items];
+    const tmp = next[i];
+    next[i] = next[j];
+    next[j] = tmp;
+    return next;
+  });
+  // Keep selection/focus after move
+  setSelectedBlockId(blockId);
 };
  const onImageCommentCreate = ({ x, y, w, h , itemId, rel}) => {
  const id = 'cmt-' + Math.random().toString(36).slice(2, 8);
@@ -1423,34 +1810,51 @@ const deleteList = (id) => {
 
  // Emoji Handlers
  const addCustomEmoji = (e) => {
- e.preventDefault();
- if (!newEmojiName.trim() || !newEmojiUrl.trim()) return;
- if (customEmojis.some(em => em.name === newEmojiName.trim())) {
- 
- return;
- }
- setCustomEmojis(prev => [...prev, { name: newEmojiName.trim(), url: newEmojiUrl.trim() }]);
- setNewEmojiName('');
- setNewEmojiUrl('');
- };
+  e.preventDefault();
+  if (!newEmojiName.trim() || !newEmojiUrl.trim()) return;
+  if (customEmojis.some(em => em.name === newEmojiName.trim())) { return; }
+  try { window.RustifyEmojiStore?.addOrUpdate(newEmojiUrl.trim(), newEmojiName.trim()); } catch {}
+  syncFromGlobal();
+  try { queueSaveGlobal(); window.RustifyToast && window.RustifyToast.show('success','Сохраняю глобальные эмодзи…'); } catch {}
+  setNewEmojiName('');
+  setNewEmojiUrl('');
+};
 
  const deleteCustomEmoji = (name) => {
- setCustomEmojis(prev => prev.filter(em => em.name !== name));
- };
+  try { const target = (Array.isArray(customEmojis) ? customEmojis : []).find(e => e.name === name); if (target?.url) { window.RustifyEmojiStore?.removeByUrl(target.url); } } catch {}
+  syncFromGlobal();
+  try { queueSaveGlobal(); window.RustifyToast && window.RustifyToast.show('success','Сохраняю глобальные эмодзи…'); } catch {}
+};
  const startRenameEmoji = (old) => setEmojiRename({ old, value: old });
  const cancelRenameEmoji = () => setEmojiRename(null);
  const saveRenameEmoji = () => {
- if (!emojiRename) return;
- const newName = (emojiRename.value || '').trim();
- if (!newName) { setEmojiRename(null); return; }
- if (/[^a-z0-9_]/i.test(newName)) { return; }
- if (customEmojis.some(e => e.name === newName && e.name !== emojiRename.old)) {
- 
- return;
- }
- setCustomEmojis(prev => prev.map(e => e.name === emojiRename.old ? { ...e, name: newName } : e));
- setEmojiRename(null);
- };
+  if (!emojiRename) return;
+  const newName = (emojiRename.value || '').trim();
+  if (!newName) { setEmojiRename(null); return; }
+  if (/[^a-z0-9_]/i.test(newName)) { return; }
+  try {
+    const target = (Array.isArray(customEmojis) ? customEmojis : []).find(e => e.name === emojiRename.old);
+    if (target?.url) { window.RustifyEmojiStore?.addOrUpdate(target.url, newName); }
+  } catch {}
+  syncFromGlobal();
+  try { queueSaveGlobal(); window.RustifyToast && window.RustifyToast.show('success','Сохраняю глобальные эмодзи…'); } catch {}
+  setEmojiRename(null);
+};
+const setEmojiIdManual = (name) => {
+  try {
+    const current = (Array.isArray(customEmojis) ? customEmojis : []).find(e => e.name === name)?.id || '';
+    const next = window.prompt('ID эмодзи (Discord Snowflake):', current);
+    if (next === null) return; // canceled
+    const id = String(next).trim();
+    // Optional numeric validation: allow digits only (snowflake)
+    if (id && /\D/.test(id)) {
+      if (!window.confirm('ID содержит нецифровые символы. Всё равно сохранить?')) return;
+    }
+    setCustomEmojis((list) => (Array.isArray(list) ? list : []).map(e => e && e.name === name ? ({ ...e, id }) : e));
+    try { queueSaveGlobal(); window.RustifyToast && window.RustifyToast.show('success','ID эмодзи сохранён'); } catch {}
+  } catch {}
+};
+
 
  // --- Derived current editing items ---
  const currentBtn = useMemo(() => {
@@ -1512,28 +1916,45 @@ const deleteList = (id) => {
  onCreateSecondary={handleAddSecondaryEmbed}
  onChangeParent={handleChangeParent}
  onRename={(id, name) => setEmbeds(prev => prev.map(e => e.id === id ? { ...e, name } : e))}
- />
+  remoteEmbedStatuses={remoteEmbedStatuses} />
  <div ref={workAreaRef} data-work-area className="relative flex-1 min-w-0" onClick={(e) => { if (previewMode && !isSelectingComment) { setActiveCommentId(null); } }}>
  
  <div className="flex items-center gap-2 text-xs opacity-90" onClick={(e)=>e.stopPropagation()}>
- <div className="inline-flex rounded-md overflow-hidden border border-[#202225]">
- <button
- type="button"
- onClick={() => setPreviewMode(false)}
- className={`h-7 px-3 flex items-center justify-center leading-none ${!previewMode ? 'bg-[#5865F2] text-white border border-[#5865F2]' : 'bg-[#2b2d31] text-white/70 border border-[#3a3d42] hover:bg-[#3a3d42]'} transition`}
- title="Режим редактирования"
- >
- Редакт.
- </button>
- <button
- type="button"
- onClick={() => setPreviewMode(true)}
- className={`h-7 px-3 border-l border-[#202225] flex items-center justify-center leading-none ${previewMode ? 'bg-[#5865F2] text-white border border-[#5865F2]' : 'bg-[#2b2d31] text-white/70 border border-[#3a3d42] hover:bg-[#3a3d42]'} transition`}
- title="Режим предпросмотра"
- >
- Предпросм.
- </button>
+ <div className="inline-flex gap-1 rounded-md overflow-hidden border border-[#202225]">
+ <div className="flex items-center gap-2">
+ {isLoadedProject && (<StatusToggle3 value={effectiveCurrentStatus} onChange={(s) => handleStatusClick(s)} />)}
+ <div className="relative inline-grid grid-cols-2 items-center rounded-[0.75rem] bg-[#1f2226] border border-[#33363a] select-none">
+  {/* бегунок: ширина ровно 50% контейнера, учтён только бордер */}
+  <span
+    className={`pointer-events-none absolute top-[2px] left-[2px] bottom-[2px] w-[calc(50%-2px)] rounded-[0.75rem] transition-transform transition-colors duration-200 ease-out ${
+      previewMode ? "translate-x-full" : "translate-x-0"
+    } bg-[#6a8aec] shadow-[0_2px_14px_rgba(106,138,236,0.35)]`}
+  />
+
+  <button
+    type="button"
+    onClick={() => setPreviewMode(false)}
+    className={`relative z-10 h-8 px-4 text-xs font-medium rounded-none bg-transparent border-0 hover:border-0 focus:border-0 focus-visible:border-0 active:border-0 border-none hover:bg-transparent border-0 hover:border-0 focus:border-0 focus-visible:border-0 active:border-0 hover:border-none active:bg-transparent border-0 hover:border-0 focus:border-0 focus-visible:border-0 active:border-0 active:border-none focus:bg-transparent border-0 hover:border-0 focus:border-0 focus-visible:border-0 active:border-0 outline-none focus:outline-none focus:border-none focus-visible:outline-none focus-visible:border-none focus:ring-0 focus-visible:ring-0 ${
+      !previewMode ? "text-white" : "text-white/70 hover:text-white"
+    }`}
+    style={{ backgroundColor: "transparent", border: "none" }}
+  >
+    Редакт.
+  </button>
+  <button
+    type="button"
+    onClick={() => setPreviewMode(true)}
+    className={`relative z-10 h-8 px-4 text-xs font-medium rounded-none bg-transparent border-0 hover:border-0 focus:border-0 focus-visible:border-0 active:border-0 border-none hover:bg-transparent border-0 hover:border-0 focus:border-0 focus-visible:border-0 active:border-0 hover:border-none active:bg-transparent border-0 hover:border-0 focus:border-0 focus-visible:border-0 active:border-0 active:border-none focus:bg-transparent border-0 hover:border-0 focus:border-0 focus-visible:border-0 active:border-0 outline-none focus:outline-none focus:border-none focus-visible:outline-none focus-visible:border-none focus:ring-0 focus-visible:ring-0 ${
+      previewMode ? "text-white" : "text-white/70 hover:text-white"
+    }`}
+    style={{ backgroundColor: "transparent", border: "none" }}
+  >
+    Предпросм.
+  </button>
+</div>
  </div>
+</div>
+
  </div>
  <MessageRow colors={colors} footer={footerBlocks.length ? (
  <div className="mt-3 space-y-3" onClick={(e)=>e.stopPropagation()}>
@@ -1604,7 +2025,7 @@ const deleteList = (id) => {
  {/* Highlight of block/button from active comment */}
  {!!highlightRect && !showAllHighlights && (
    <div className="absolute inset-0 z-[9999] pointer-events-none">
-     <div className="absolute border-2 border-[#94db6b]/90 rounded"
+     <div className="absolute border-2 border-[#9ec070]/90 rounded"
           style={{ left: highlightRect.left, top: highlightRect.top, width: highlightRect.width, height: highlightRect.height }} />
    </div>
  )}
@@ -1643,11 +2064,11 @@ const deleteList = (id) => {
         return (
           <div
             key={c.id}
-            className="absolute border-2 border-[#94db6b]/80 rounded cursor-pointer"
+            className="absolute border-2 border-[#9ec070]/80 rounded cursor-pointer"
             style={{ left: r.left - hostRc.left, top: r.top - hostRc.top, width: r.width, height: r.height }}
             onClick={(e) => { e.stopPropagation(); handleCommentCardClick(c); }}
           >
-            <div className="absolute -top-4 left-0 text-xs bg-[#94db6b] text-[#2B2D31] px-1 rounded">{i+1}</div>
+            <div className="absolute -top-4 left-0 text-xs bg-[#9ec070] text-[#2B2D31] px-1 rounded">{i+1}</div>
           </div>
         );
       } catch (e) { return null; }
@@ -1662,7 +2083,7 @@ const deleteList = (id) => {
         return (
           <div
             key={activeComment.id}
-            className="absolute border-2 border-[#94db6b]/80 rounded z-30"
+            className="absolute border-2 border-[#9ec070]/80 rounded z-30"
             style={{ left: rc.left, top: rc.top, width: rc.width, height: rc.height }}
           >
             <div
@@ -1720,7 +2141,7 @@ const deleteList = (id) => {
  <div className="absolute inset-0 bg-black/40 pointer-events-none" />
  {selectionRect && (
  <div
- className="absolute bg-indigo-500/20 border-2 border-indigo-500 rounded"
+ className="absolute bg-indigo-500/20 border-2 border-[#93d36f] rounded"
  style={{ left: selectionRect.x, top: selectionRect.y, width: selectionRect.w, height: selectionRect.h }}
  />
  )}
@@ -1732,6 +2153,9 @@ const deleteList = (id) => {
  <div className="shrink-0 flex flex-col">
 
  <AuthProfileBar />
+        {DEV_EXPORT && (
+          <DevInspectBar currentEmbed={currentEmbed} parentEmbed={parentEmbed} embeds={embeds} activeEmbedId={activeEmbedId} />
+        )}
 
  <CommentsSidebar
  comments={currentComments}
@@ -1745,9 +2169,9 @@ const deleteList = (id) => {
  showAll={showAllHighlights}
  onToggleShowAll={() => setShowAllHighlights(prev => !prev)} />
 
- <ModalsSidebar modals={modals} onCreate={handleCreateModal} onOpen={handleOpenModal} onOpenSettings={handleOpenModalSettings} />
+ <ModalsSidebar modals={modals} onCreate={handleCreateModal} onOpen={handleOpenModal} onOpenSettings={handleOpenModalSettings} activeId={activeModalId} />
  
- <MiniEmbedsSidebar onDelete={handleDeleteMiniEmbed} onReorder={handleReorderMiniEmbed} onRename={handleRenameMiniEmbed} miniEmbeds={miniEmbeds} onCreate={handleCreateMiniEmbed} onOpen={handleOpenMiniEmbed} activeId={activeMiniEmbedId} />
+ <MiniEmbedsSidebar onDelete={handleDeleteMiniEmbed} onReorder={handleReorderMiniEmbed} onRename={handleRenameMiniEmbed} miniEmbeds={miniEmbeds} onCreate={handleCreateMiniEmbed} onOpen={handleOpenMiniEmbed} activeId={activeMiniEmbedId}  remoteEmbedStatuses={remoteEmbedStatuses} />
  
 
 {modalMode && (
@@ -1771,7 +2195,7 @@ const deleteList = (id) => {
  
  
 
- className="w-full px-3 py-2 rounded-md bg-[#1e1f22] border border-[#2a2c30] focus:outline-none focus:ring-1 focus:ring-[#5865f2]"
+ className="w-full px-3 py-2 rounded-md bg-[#1e1f22] border border-[#2a2c30] focus:outline-none focus:border-none focus-visible:outline-none focus-visible:border-none focus:ring-1 focus:ring-[#5865f2]"
  />
 
 
@@ -1779,7 +2203,7 @@ const deleteList = (id) => {
  <button type="button" onClick={() => { setModalMode(null); setActiveModalId(null); }} className="px-3 py-2 rounded-md bg-[#4f535c] hover:bg-[#5d6269] text-sm">
  Отмена
  </button>
- <button type="submit" className="px-3 py-2 rounded-md bg-[#5865f2] hover:bg-[#4752c4] text-white text-sm h-9 flex items-center justify-center leading-none focus:outline-none focus:ring-0">
+ <button type="submit" className="px-3 py-2 rounded-md bg-[#5865f2] hover:bg-[#4752c4] text-white text-sm h-9 flex items-center justify-center leading-none focus:outline-none focus:border-none focus-visible:outline-none focus-visible:border-none focus:ring-0 focus-visible:ring-0">
  Создать
  </button>
  </div>
@@ -1791,7 +2215,7 @@ const deleteList = (id) => {
  <div className="text-lg font-semibold">Настройки окна</div>
  <button
  type="button"
- className="px-3 py-1.5 rounded-md bg-red-600 hover:bg-red-700 text-sm text-white focus:outline-none focus:ring-0"
+ className="px-3 py-1.5 rounded-md bg-red-600 hover:bg-red-700 text-sm text-white focus:outline-none focus:border-none focus-visible:outline-none focus-visible:border-none focus:ring-0 focus-visible:ring-0"
  onClick={() => {
  const delId = activeModalId;
  if (!delId) return;
@@ -1830,7 +2254,7 @@ const deleteList = (id) => {
  setModals(prev => prev.map(m => m.id === activeModalId ? { ...m, title: v } : m));
  }}
  placeholder="Введите название окна"
- className="w-full px-3 py-2 rounded-md bg-[#1e1f22] border border-[#2a2c30] focus:outline-none focus:ring-1 focus:ring-[#5865f2]"
+ className="w-full px-3 py-2 rounded-md bg-[#1e1f22] border border-[#2a2c30] focus:outline-none focus:border-none focus-visible:outline-none focus-visible:border-none focus:ring-1 focus:ring-[#5865f2]"
  autoFocus
  />
 <div className="space-y-1 mt-2">
@@ -1841,7 +2265,7 @@ const deleteList = (id) => {
       const v = e.target.value || "";
       setModals(prev => prev.map(m => m.id === activeModalId ? { ...m, submitLinkToMiniEmbedId: v || undefined } : m));
     }}
-    className="w-full px-3 py-2 rounded-md bg-[#1e1f22] border border-[#2a2c30] focus:outline-none focus:ring-1 focus:ring-[#5865f2]"
+    className="w-full px-3 py-2 rounded-md bg-[#1e1f22] border border-[#2a2c30] focus:outline-none focus:border-none focus-visible:outline-none focus-visible:border-none focus:ring-1 focus:ring-[#5865f2]"
   >
     <option value="">— Не назначено —</option>
     {(miniEmbeds || []).map(me => (
@@ -1855,7 +2279,7 @@ const deleteList = (id) => {
  <div className="flex gap-2 pt-2">
  <button
  type="button"
- className="px-3 py-2 rounded-md bg-[#5865f2] hover:bg-[#4752c4] text-sm text-white focus:outline-none focus:ring-0"
+ className="px-3 py-2 rounded-md bg-[#5865f2] hover:bg-[#4752c4] text-sm text-white focus:outline-none focus:border-none focus-visible:outline-none focus-visible:border-none focus:ring-0 focus-visible:ring-0"
  onClick={() => {
  const newField = {
  id: `f_${Date.now()}_${Math.random().toString(36).slice(2,6)}`,
@@ -1875,7 +2299,7 @@ const deleteList = (id) => {
  </button>
  <button
  type="button"
- className="px-3 py-2 rounded-md bg-[#5865f2] hover:bg-[#4752c4] text-sm text-white focus:outline-none focus:ring-0"
+ className="px-3 py-2 rounded-md bg-[#5865f2] hover:bg-[#4752c4] text-sm text-white focus:outline-none focus:border-none focus-visible:outline-none focus-visible:border-none focus:ring-0 focus-visible:ring-0"
  onClick={() => {
  const newField = {
  id: `f_${Date.now()}_${Math.random().toString(36).slice(2,6)}`,
@@ -1909,7 +2333,7 @@ const deleteList = (id) => {
  </div>
  <button
  type="button"
- className="text-xs px-2 py-1 rounded-md bg-[#4f535c] hover:bg-[#5d6269] focus:outline-none focus:ring-0"
+ className="text-xs px-2 py-1 rounded-md bg-[#4f535c] hover:bg-[#5d6269] focus:outline-none focus:border-none focus-visible:outline-none focus-visible:border-none focus:ring-0 focus-visible:ring-0"
  onClick={() => {
  setModals(prev => prev.map(m => {
  if (m.id !== activeModalId) return m;
@@ -1936,7 +2360,7 @@ const deleteList = (id) => {
  }));
  }}
  placeholder="Название поля"
- className="w-full px-3 py-2 rounded-md bg-[#111214] border border-[#2a2c30] focus:outline-none focus:ring-1 focus:ring-[#5865f2]"
+ className="w-full px-3 py-2 rounded-md bg-[#111214] border border-[#2a2c30] focus:outline-none focus:border-none focus-visible:outline-none focus-visible:border-none focus:ring-1 focus:ring-[#5865f2]"
  />
  </div>
  <div className="space-y-1">
@@ -1953,7 +2377,7 @@ const deleteList = (id) => {
  }));
  }}
  placeholder="Плейсхолдер"
- className="w-full px-3 py-2 rounded-md bg-[#111214] border border-[#2a2c30] focus:outline-none focus:ring-1 focus:ring-[#5865f2]"
+ className="w-full px-3 py-2 rounded-md bg-[#111214] border border-[#2a2c30] focus:outline-none focus:border-none focus-visible:outline-none focus-visible:border-none focus:ring-1 focus:ring-[#5865f2]"
  />
  </div>
  </div>
@@ -2007,13 +2431,13 @@ const deleteList = (id) => {
  <textarea
  rows={f.rows || 4}
  placeholder={f.placeholder || ''}
- className="w-full px-3 py-2 rounded-md bg-[#1e1f22] border border-[#2a2c30] focus:outline-none focus:ring-1 focus:ring-[#5865f2]"
+ className="w-full px-3 py-2 rounded-md bg-[#1e1f22] border border-[#2a2c30] focus:outline-none focus:border-none focus-visible:outline-none focus-visible:border-none focus:ring-1 focus:ring-[#5865f2]"
  />
  ) : (
  <input
  type="text"
  placeholder={f.placeholder || ''}
- className="w-full px-3 py-2 rounded-md bg-[#1e1f22] border border-[#2a2c30] focus:outline-none focus:ring-1 focus:ring-[#5865f2]"
+ className="w-full px-3 py-2 rounded-md bg-[#1e1f22] border border-[#2a2c30] focus:outline-none focus:border-none focus-visible:outline-none focus-visible:border-none focus:ring-1 focus:ring-[#5865f2]"
  />
  )}
  </div>
@@ -2071,14 +2495,14 @@ const deleteList = (id) => {
  />
  </div>
  <div className="sm:col-span-1 flex gap-2 flex-wrap">
- <button onClick={addMenu} className="h-9 px-4 rounded-md bg-[#4f545c] hover:bg-[#5d6269] text-sm font-medium flex items-center justify-center focus:outline-none focus:ring-0">Меню</button>
- <button onClick={addHr} className="h-9 px-3 rounded-md bg-[#4f545c] hover:bg-[#5d6269] text-sm font-medium focus:outline-none focus:ring-0" title="Добавить HR">HR</button>
- <button onClick={addText} className="h-9 px-3 rounded-md bg-[#4f545c] hover:bg-[#5d6269] text-sm font-medium focus:outline-none focus:ring-0" title="Добавить текстовый блок">Текст</button>
- <button onClick={addTextWithButton} className="h-9 px-3 rounded-md bg-[#4f545c] hover:bg-[#5d6269] text-sm font-medium focus:outline-none focus:ring-0" title="Добавить текст с кнопкой">Текст+Кнопка</button>
- <button onClick={addList} className="h-9 px-3 rounded-md bg-[#4f545c] hover:bg-[#5d6269] text-sm font-medium focus:outline-none focus:ring-0" title="Добавить выпадающий список">Список</button>
+ <button onClick={addMenu} className="h-9 px-4 rounded-md bg-[#4f545c] hover:bg-[#5d6269] text-sm font-medium flex items-center justify-center focus:outline-none focus:border-none focus-visible:outline-none focus-visible:border-none focus:ring-0 focus-visible:ring-0">Меню</button>
+ <button onClick={addHr} className="h-9 px-3 rounded-md bg-[#4f545c] hover:bg-[#5d6269] text-sm font-medium focus:outline-none focus:border-none focus-visible:outline-none focus-visible:border-none focus:ring-0 focus-visible:ring-0" title="Добавить HR">HR</button>
+ <button onClick={addText} className="h-9 px-3 rounded-md bg-[#4f545c] hover:bg-[#5d6269] text-sm font-medium focus:outline-none focus:border-none focus-visible:outline-none focus-visible:border-none focus:ring-0 focus-visible:ring-0" title="Добавить текстовый блок">Текст</button>
+ <button onClick={addTextWithButton} className="h-9 px-3 rounded-md bg-[#4f545c] hover:bg-[#5d6269] text-sm font-medium focus:outline-none focus:border-none focus-visible:outline-none focus-visible:border-none focus:ring-0 focus-visible:ring-0" title="Добавить текст с кнопкой">Текст+Кнопка</button>
+ <button onClick={addList} className="h-9 px-3 rounded-md bg-[#4f545c] hover:bg-[#5d6269] text-sm font-medium focus:outline-none focus:border-none focus-visible:outline-none focus-visible:border-none focus:ring-0 focus-visible:ring-0" title="Добавить выпадающий список">Список</button>
  
- <button onClick={addFooterMenu} className="h-9 px-3 rounded-md bg-[#4f545c] hover:bg-[#5d6269] text-sm font-medium focus:outline-none focus:ring-0" title="Добавить нижнее меню">Ниж. Меню</button>
- <button onClick={addFooterList} className="h-9 px-3 rounded-md bg-[#4f545c] hover:bg-[#5d6269] text-sm font-medium focus:outline-none focus:ring-0" title="Добавить нижний список">Ниж. Список</button>
+ <button onClick={addFooterMenu} className="h-9 px-3 rounded-md bg-[#4f545c] hover:bg-[#5d6269] text-sm font-medium focus:outline-none focus:border-none focus-visible:outline-none focus-visible:border-none focus:ring-0 focus-visible:ring-0" title="Добавить нижнее меню">Ниж. Меню</button>
+ <button onClick={addFooterList} className="h-9 px-3 rounded-md bg-[#4f545c] hover:bg-[#5d6269] text-sm font-medium focus:outline-none focus:border-none focus-visible:outline-none focus-visible:border-none focus:ring-0 focus-visible:ring-0" title="Добавить нижний список">Ниж. Список</button>
 
  </div>
  </div>
@@ -2130,11 +2554,11 @@ const deleteList = (id) => {
  <div className="flex items-center gap-2 min-w-0">
  {emojiRename && emojiRename.old === emoji.name ? (
  <>
- <button onClick={saveRenameEmoji} className="text-xs text-green-500 hover:text-green-400 font-semibold h-9 flex items-center justify-center focus:outline-none focus:ring-0">Сохранить</button>
- <button onClick={cancelRenameEmoji} className="text-xs text-white/60 hover:text-white/80 h-9 flex items-center justify-center focus:outline-none focus:ring-0">Отмена</button>
+ <button onClick={saveRenameEmoji} className="text-xs text-green-500 hover:text-green-400 font-semibold h-9 flex items-center justify-center focus:outline-none focus:border-none focus-visible:outline-none focus-visible:border-none focus:ring-0 focus-visible:ring-0">Сохранить</button>
+ <button onClick={cancelRenameEmoji} className="text-xs text-white/60 hover:text-white/80 h-9 flex items-center justify-center focus:outline-none focus:border-none focus-visible:outline-none focus-visible:border-none focus:ring-0 focus-visible:ring-0">Отмена</button>
  </>
- ) : (
- <button onClick={() => startRenameEmoji(emoji.name)} className="text-xs text-blue-400 hover:text-blue-300 font-semibold">Переименовать</button>
+ ) : (<><button onClick={() => startRenameEmoji(emoji.name)} className="text-xs text-blue-400 hover:text-blue-300 font-semibold">Переименовать</button>
+ <button onClick={() => setEmojiIdManual(emoji.name)} className="text-xs text-yellow-400 hover:text-yellow-300 font-semibold">ID</button></>
  )}
  <button onClick={() => deleteCustomEmoji(emoji.name)} className="text-xs text-red-500 hover:text-red-400 font-semibold">Удалить</button>
  </div>
@@ -2165,7 +2589,7 @@ const deleteList = (id) => {
  />
  </div>
  <div className="sm:col-span-1">
- <button type="submit" className="w-full h-9 px-4 rounded-md bg-[#4f545c] hover:bg-[#5d6269] text-sm font-medium flex items-center justify-center focus:outline-none focus:ring-0">Добавить эмодзи</button>
+ <button type="submit" className="w-full h-9 px-4 rounded-md bg-[#4f545c] hover:bg-[#5d6269] text-sm font-medium flex items-center justify-center focus:outline-none focus:border-none focus-visible:outline-none focus-visible:border-none focus:ring-0 focus-visible:ring-0">Добавить эмодзи</button>
  </div>
  </form>
  </div>
@@ -2180,16 +2604,16 @@ const deleteList = (id) => {
  <input type="text" value={saveName} onChange={(e) => setSaveName(e.target.value)} placeholder="Имя моего проекта" className={`w-full rounded-lg border ${colors.border} bg-transparent px-3 py-2 text-sm outline-none`} />
  <div className="flex justify-end gap-2">
  <button type="button" onClick={() => setShowSaveModal(false)} className="px-4 py-2 rounded-md bg-[#4f545c] hover:bg-[#5d6269] text-sm">Отмена</button>
- <button type="submit" className="px-4 py-2 rounded-md bg-green-600 hover:bg-green-700 text-sm h-9 flex items-center justify-center focus:outline-none focus:ring-0"> {isReadOnlyDev ? "Только чтение" : "Сохранить"} </button>
+ <button type="submit" className="px-4 py-2 rounded-md bg-green-600 hover:bg-green-700 text-sm h-9 flex items-center justify-center focus:outline-none focus:border-none focus-visible:outline-none focus-visible:border-none focus:ring-0 focus-visible:ring-0"> {isReadOnlyDev ? "Только чтение" : "Сохранить"} </button>
  </div>
  </form>
  </Modal>
  )}
- {showLoadModal && ( <Modal onClose={() => setShowLoadModal(false)}> <div className="space-y-4"> <div className="flex items-center justify-between mb-2"> <h3 className="text-lg font-semibold">Загрузить проект</h3> <button onClick={handleRefreshSaves} className="px-3 py-1 text-xs rounded-md bg-gray-600 hover:bg-gray-500 disabled:opacity-50 transition-colors focus:outline-none focus:ring-0" disabled={isRefreshing || !(db || firebaseDb) || !(userId || (firebaseAuth && firebaseAuth.currentUser))}> {isRefreshing ? 'Обновление...' : 'Обновить'} </button> </div> <div className="space-y-2 max-h-64 overflow-y-auto pr-2"> {loadingStatus === 'loading' && <p className="text-sm text-white/50">Загрузка сохранений...</p>} {loadingStatus === 'error' && <p className="text-sm text-red-400">Ошибка загрузки.</p>} {loadingStatus === 'ready' && savedStates.length > 0 ? savedStates.map(state => ( <div key={state.id} className="flex items-center justify-between bg-[#202225] p-2 rounded-lg"> <span className="text-sm">{state.id}</span> <div className="flex gap-2"> <button onClick={() => handleLoad(state)} className="px-3 py-1 text-xs rounded-md bg-blue-600 hover:bg-blue-700">Загрузить</button> <button onClick={() => { setShowLoadModal(false); setDeleteConfirmId(state.id); }} className="px-3 py-1 text-xs rounded-md bg-red-600 hover:bg-red-700">Удалить</button> </div> </div> )) : null} {loadingStatus === 'ready' && savedStates.length === 0 && <p className="text-sm text-white/50">Нет сохраненных проектов.</p>} </div> <div className="flex justify-end"> <button onClick={() => setShowLoadModal(false)} className="px-4 py-2 rounded-md bg-[#4f545c] hover:bg-[#5d6269] text-sm">{(previewMode || modalMode === 'view') ? 'Отправить' : 'Закрыть'}</button> </div> </div> </Modal> )}
+ {showLoadModal && ( <Modal onClose={() => setShowLoadModal(false)}> <div className="space-y-4"> <div className="flex items-center justify-between mb-2"> <h3 className="text-lg font-semibold">Загрузить проект</h3> <button onClick={handleRefreshSaves} className="px-3 py-1 text-xs rounded-md bg-gray-600 hover:bg-gray-500 disabled:opacity-50 transition-colors focus:outline-none focus:border-none focus-visible:outline-none focus-visible:border-none focus:ring-0 focus-visible:ring-0" disabled={isRefreshing || !(db || firebaseDb) || !(userId || (firebaseAuth && firebaseAuth.currentUser))}> {isRefreshing ? 'Обновление...' : 'Обновить'} </button> </div> <div className="space-y-2 max-h-64 overflow-y-auto pr-2"> {loadingStatus === 'loading' && <p className="text-sm text-white/50">Загрузка сохранений...</p>} {loadingStatus === 'error' && <p className="text-sm text-red-400">Ошибка загрузки.</p>} {loadingStatus === 'ready' && savedStates.length > 0 ? savedStates.map(state => ( <div key={state.id} className="flex items-center justify-between bg-[#202225] p-2 rounded-lg"> <span className="text-sm">{state.id}</span> <div className="flex gap-2"> <button onClick={() => handleLoad(state)} className="px-3 py-1 text-xs rounded-md bg-blue-600 hover:bg-blue-700">Загрузить</button> <button onClick={() => { setShowLoadModal(false); setDeleteConfirmId(state.id); }} className="px-3 py-1 text-xs rounded-md bg-red-600 hover:bg-red-700">Удалить</button> </div> </div> )) : null} {loadingStatus === 'ready' && savedStates.length === 0 && <p className="text-sm text-white/50">Нет сохраненных проектов.</p>} </div> <div className="flex justify-end"> <button onClick={() => setShowLoadModal(false)} className="px-4 py-2 rounded-md bg-[#4f545c] hover:bg-[#5d6269] text-sm">{(previewMode || modalMode === 'view') ? 'Отправить' : 'Закрыть'}</button> </div> </div> </Modal> )}
  {deleteConfirmId && ( <Modal onClose={() => setDeleteConfirmId(null)}> <div className="space-y-4"> <h3 className="text-lg font-semibold">Подтверждение</h3> <p className="text-sm text-white/70">Вы уверены, что хотите удалить проект "{deleteConfirmId}"? Это действие необратимо.</p> <div className="flex justify-end gap-2"> <button onClick={() => setDeleteConfirmId(null)} className="px-4 py-2 rounded-md bg-[#4f545c] hover:bg-[#5d6269] text-sm">Отмена</button> <button onClick={!isReadOnlyDev ? handleDelete : (()=>setStatusMessage("Режим только чтение: удаление недоступно."))} className="px-4 py-2 rounded-md bg-red-600 hover:bg-red-700 text-sm" disabled={isReadOnlyDev}>Удалить</button> </div> </div> </Modal> )}
- {showNewEmbedModal && ( <Modal onClose={() => setShowNewEmbedModal(false)}> <form className="space-y-4 w-full" onSubmit={(e) => { e.preventDefault(); handleAddNewEmbed(); }}> <h3 className="text-lg font-semibold">Создать новый Embed</h3> <p className="text-sm text-white/70">Введите название для нового встраиваемого блока.</p> <input type="text" value={newEmbedName} onChange={(e) => setNewEmbedName(e.target.value)} placeholder="Название Embed'а" className={`w-full rounded-lg border ${colors.border} bg-transparent px-3 py-2 text-sm outline-none`} autoFocus /> <div className="flex justify-end gap-2"> <button type="button" onClick={() => setShowNewEmbedModal(false)} className="px-4 py-2 rounded-md bg-[#4f545c] hover:bg-[#5d6269] text-sm">Отмена</button> <button type="submit" className="px-4 py-2 rounded-md bg-indigo-600 hover:bg-indigo-500 text-sm h-9 flex items-center justify-center leading-none focus:outline-none focus:ring-0">Создать</button> </div> </form> </Modal> )}
- {deletingEmbed && ( <Modal onClose={() => setDeletingEmbed(null)}> <div className="space-y-4"> <h3 className="text-lg font-semibold">Удалить Embed?</h3> <p className="text-sm text-white/70">Вы уверены, что хотите удалить эмбед "{deletingEmbed.name}"? Это действие нельзя будет отменить.</p> <div className="flex justify-end gap-2"> <button onClick={() => setDeletingEmbed(null)} className="px-4 py-2 rounded-md bg-[#4f545c] hover:bg-[#5d6269] text-sm">Отмена</button> <button onClick={handleDeleteEmbed} className="px-4 py-2 rounded-md bg-red-600 hover:bg-red-700 text-sm h-9 flex items-center justify-center focus:outline-none focus:ring-0">Удалить</button> </div> </div> </Modal> )}
- {renamingEmbed && ( <Modal onClose={() => setRenamingEmbed(null)}> <form className="space-y-4 w-full" onSubmit={(e) => { e.preventDefault(); handleRenameEmbed(e.target.elements.embedName.value); }}> <h3 className="text-lg font-semibold">Переименовать Embed</h3> <input name="embedName" type="text" defaultValue={renamingEmbed.name} className={`w-full rounded-lg border ${colors.border} bg-transparent px-3 py-2 text-sm outline-none`} autoFocus onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.form.requestSubmit() }} /> <div className="flex justify-end gap-2"> <button type="button" onClick={() => setRenamingEmbed(null)} className="px-4 py-2 rounded-md bg-[#4f545c] hover:bg-[#5d6269] text-sm">Отмена</button> <button type="submit" className="px-4 py-2 rounded-md bg-indigo-600 hover:bg-indigo-500 text-sm h-9 flex items-center justify-center focus:outline-none focus:ring-0"> {isReadOnlyDev ? "Только чтение" : "Сохранить"} </button> </div> </form> </Modal> )}
+ {showNewEmbedModal && ( <Modal onClose={() => setShowNewEmbedModal(false)}> <form className="space-y-4 w-full" onSubmit={(e) => { e.preventDefault(); handleAddNewEmbed(); }}> <h3 className="text-lg font-semibold">Создать новый Embed</h3> <p className="text-sm text-white/70">Введите название для нового встраиваемого блока.</p> <input type="text" value={newEmbedName} onChange={(e) => setNewEmbedName(e.target.value)} placeholder="Название Embed'а" className={`w-full rounded-lg border ${colors.border} bg-transparent px-3 py-2 text-sm outline-none`} autoFocus /> <div className="flex justify-end gap-2"> <button type="button" onClick={() => setShowNewEmbedModal(false)} className="px-4 py-2 rounded-md bg-[#4f545c] hover:bg-[#5d6269] text-sm">Отмена</button> <button type="submit" className="px-4 py-2 rounded-md bg-[#6a8aec] hover:bg-indigo-500 text-sm h-9 flex items-center justify-center leading-none focus:outline-none focus:border-none focus-visible:outline-none focus-visible:border-none focus:ring-0 focus-visible:ring-0">Создать</button> </div> </form> </Modal> )}
+ {deletingEmbed && ( <Modal onClose={() => setDeletingEmbed(null)}> <div className="space-y-4"> <h3 className="text-lg font-semibold">Удалить Embed?</h3> <p className="text-sm text-white/70">Вы уверены, что хотите удалить эмбед "{deletingEmbed.name}"? Это действие нельзя будет отменить.</p> <div className="flex justify-end gap-2"> <button onClick={() => setDeletingEmbed(null)} className="px-4 py-2 rounded-md bg-[#4f545c] hover:bg-[#5d6269] text-sm">Отмена</button> <button onClick={handleDeleteEmbed} className="px-4 py-2 rounded-md bg-red-600 hover:bg-red-700 text-sm h-9 flex items-center justify-center focus:outline-none focus:border-none focus-visible:outline-none focus-visible:border-none focus:ring-0 focus-visible:ring-0">Удалить</button> </div> </div> </Modal> )}
+ {renamingEmbed && ( <Modal onClose={() => setRenamingEmbed(null)}> <form className="space-y-4 w-full" onSubmit={(e) => { e.preventDefault(); handleRenameEmbed(e.target.elements.embedName.value); }}> <h3 className="text-lg font-semibold">Переименовать Embed</h3> <input name="embedName" type="text" defaultValue={renamingEmbed.name} className={`w-full rounded-lg border ${colors.border} bg-transparent px-3 py-2 text-sm outline-none`} autoFocus onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.form.requestSubmit() }} /> <div className="flex justify-end gap-2"> <button type="button" onClick={() => setRenamingEmbed(null)} className="px-4 py-2 rounded-md bg-[#4f545c] hover:bg-[#5d6269] text-sm">Отмена</button> <button type="submit" className="px-4 py-2 rounded-md bg-[#6a8aec] hover:bg-indigo-500 text-sm h-9 flex items-center justify-center focus:outline-none focus:border-none focus-visible:outline-none focus-visible:border-none focus:ring-0 focus-visible:ring-0"> {isReadOnlyDev ? "Только чтение" : "Сохранить"} </button> </div> </form> </Modal> )}
  {!previewMode && currentBtn && (
  <Modal onClose={() => setEditingBtn(null)} contentClassName="w-[760px] max-w-[95vw]">
  <ButtonEditor
@@ -2218,7 +2642,7 @@ const deleteList = (id) => {
  />
  </Modal>
 )}
- {!previewMode && editingHrId && ( <Modal onClose={() => setEditingHrId(null)}> <div className="space-y-4"> <h3 className="text-base font-semibold">Горизонтальная линия</h3> <p className="text-sm opacity-80">Удалить этот блок?</p> <div className="flex justify-end gap-2"> <button className="px-3 py-2 rounded-md bg-[#4f545c] hover:bg-[#5d6269] text-sm focus:outline-none focus:ring-0" onClick={()=>setEditingHrId(null)}>Отмена</button> <button className="px-3 py-2 rounded-md bg-red-600 hover:bg-red-700 text-sm focus:outline-none focus:ring-0" onClick={()=>deleteHr(editingHrId)}>Удалить</button> </div> </div> </Modal> )}
+ {!previewMode && editingHrId && ( <Modal onClose={() => setEditingHrId(null)}> <div className="space-y-4"> <h3 className="text-base font-semibold">Горизонтальная линия</h3> <p className="text-sm opacity-80">Удалить этот блок?</p> <div className="flex justify-end gap-2"> <button className="px-3 py-2 rounded-md bg-[#4f545c] hover:bg-[#5d6269] text-sm focus:outline-none focus:border-none focus-visible:outline-none focus-visible:border-none focus:ring-0 focus-visible:ring-0" onClick={()=>setEditingHrId(null)}>Отмена</button> <button className="px-3 py-2 rounded-md bg-red-600 hover:bg-red-700 text-sm focus:outline-none focus:border-none focus-visible:outline-none focus-visible:border-none focus:ring-0 focus-visible:ring-0" onClick={()=>deleteHr(editingHrId)}>Удалить</button> </div> </div> </Modal> )}
  {!previewMode && currentText && ( <Modal onClose={() => setEditingTextId(null)}> <TextEditor customEmojis={customEmojis} initial={currentText} onSave={(patch) => { modifyItems(prev => prev.map((it) => it.id === currentText.id ? { ...it, ...patch } : it)); setEditingTextId(null); }} onDelete={() => deleteText(currentText.id)} /> </Modal> )}
  
  {!previewMode && currentList && (
@@ -2378,7 +2802,7 @@ const deleteList = (id) => {
  <div
  className="no-scrollbar overflow-x-auto whitespace-nowrap flex items-center gap-2 py-2 px-2 rounded-xl border border-white/10"
  style={{ overscrollBehavior: "contain", scrollbarWidth: "none", msOverflowStyle: "none" }}
- onWheel={(e)=>{ e.preventDefault(); e.stopPropagation(); if(e.deltaY){ e.currentTarget.scrollLeft += e.deltaY * 3; } }}
+ onWheel={(e)=>{ const el = e.currentTarget; if(!el) return; const dx = Math.abs(e.deltaX); const dy = Math.abs(e.deltaY); const delta = dy >= dx ? e.deltaY : e.deltaX; el.scrollLeft += delta * 3; }}
  >
  {Array.isArray(customEmojis) && customEmojis.length > 0 ? (
  customEmojis.map((emoji) => {
@@ -2416,7 +2840,7 @@ const deleteList = (id) => {
  <button type="button" onClick={() => deleteList(currentList.id)} className="px-3 py-2 rounded-md bg-red-700 hover:bg-red-600 text-sm">Удалить блок</button>
  <div className="flex gap-2">
  <button type="button" onClick={() => setEditingListId(null)} className="px-3 py-2 rounded-md bg-[#4f545c] hover:bg-[#5d6269] text-sm">Отмена</button>
- <button type="submit" className="px-3 py-2 rounded-md bg-green-600 hover:bg-green-700 text-sm h-9 flex items-center justify-center focus:outline-none focus:ring-0"> {isReadOnlyDev ? "Только чтение" : "Сохранить"} </button>
+ <button type="submit" className="px-3 py-2 rounded-md bg-green-600 hover:bg-green-700 text-sm h-9 flex items-center justify-center focus:outline-none focus:border-none focus-visible:outline-none focus-visible:border-none focus:ring-0 focus-visible:ring-0"> {isReadOnlyDev ? "Только чтение" : "Сохранить"} </button>
  </div>
  </div>
  
@@ -2434,12 +2858,12 @@ function MessageRow({ colors, children, footer }) {
  return (
  <div className="w-full">
  {/* Центрируем всю связку: аватарка + контентная колонка */}
- <div className="flex justify-center">
+ <div className="flex justify-center py-6">
  <div className="flex items-start gap-3">
  {/* Аватар */}
  <div
  className="h-10 w-10 rounded-full shrink-0 flex items-center justify-center font-bold"
- style={{ backgroundColor: "#94db6b", color: "#2B2D31" }}
+ style={{ backgroundColor: "#93d36f", color: "#2B2D31" }}
  >
  R
  </div>
@@ -2448,7 +2872,7 @@ function MessageRow({ colors, children, footer }) {
  <div className="min-w-0" style={{ width: "680px", maxWidth: "680px" }}>
  {/* Имя + время в одну линию, как в Discord */}
  <div className="mb-2 text-sm">
- <span style={{ color: "#94db6b", fontWeight: 500 }}>Rustify</span>{" "}
+ <span style={{ color: "#93d36f", fontWeight: 500 }}>Rustify</span>{" "}
  <span className="opacity-50">Сегодня в 12:34</span>
  </div>
 
@@ -2472,7 +2896,7 @@ function MessageRow({ colors, children, footer }) {
  );
 }
 
-function EmbedSidebar({ embeds, activeEmbedId, setActiveEmbedId, onSelectParent,
+function EmbedSidebar({ embeds, activeEmbedId, setActiveEmbedId, onSelectParent, remoteEmbedStatuses = {},
  onDeleteClick,
  onReorder,
  onRenameClick,
@@ -2543,7 +2967,14 @@ function EmbedSidebar({ embeds, activeEmbedId, setActiveEmbedId, onSelectParent,
  isActive ? 'bg-[#5865F2] text-white' : 'bg-[#3a3c41] text-white/80 hover:bg-[#4a4e55]'
  }`}
  title={(node.name || 'Без названия') + ' — ПКМ для настроек'}
- style={{ marginLeft: depth ? 4 : 0 }}
+ style={{
+  marginLeft: depth ? 4 : 0,
+  backgroundImage: !isActive && isDoneStatus(remoteEmbedStatuses?.[node.id] ?? node?.status)
+    ? 'linear-gradient(to right, #9ec07066, transparent)'
+    : (!isActive && isInProgressStatus(remoteEmbedStatuses?.[node.id] ?? node?.status)
+        ? 'linear-gradient(to right, #ff923166, transparent)'
+        : undefined)
+}}
  >
  {node.name || 'Без названия'}
  </button>
@@ -2577,7 +3008,7 @@ function EmbedSidebar({ embeds, activeEmbedId, setActiveEmbedId, onSelectParent,
  </button>
  <button
  onClick={onCreateSecondary}
- className="h-9 px-3 rounded-md bg-[#3a3c41] hover:bg-[#4a4e55] text-white/90 text-sm font-medium focus:outline-none focus:ring-0"
+ className="h-9 px-3 rounded-md bg-[#3a3c41] hover:bg-[#4a4e55] text-white/90 text-sm font-medium focus:outline-none focus:border-none focus-visible:outline-none focus-visible:border-none focus:ring-0 focus-visible:ring-0"
  title="Создать дочерний эмбед текущего"
  >
  Дочерний Embed
@@ -2627,7 +3058,7 @@ function EmbedSidebar({ embeds, activeEmbedId, setActiveEmbedId, onSelectParent,
  )}
 
  <button
- className="h-8 rounded-md px-2 text-sm flex items-center justify-center leading-none bg-[#3a3c41] hover:bg-[#4a4e55] text-white/90 disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus:ring-0"
+ className="h-8 rounded-md px-2 text-sm flex items-center justify-center leading-none bg-[#3a3c41] hover:bg-[#4a4e55] text-white/90 disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus:border-none focus-visible:outline-none focus-visible:border-none focus:ring-0 focus-visible:ring-0"
  onClick={() => {
  const siblings = embeds.filter(e => (e.parentId || null) === (settingsNode.parentId || null));
  const pos = siblings.findIndex(e => e.id === settingsNode.id);
@@ -2640,7 +3071,7 @@ function EmbedSidebar({ embeds, activeEmbedId, setActiveEmbedId, onSelectParent,
  disabled={(embeds.filter(e => (e.parentId || null) === (settingsNode.parentId || null)).findIndex(e => e.id === settingsNode.id)) <= 0}
 >▲</button>
  <button
- className="h-8 rounded-md px-2 text-sm flex items-center justify-center leading-none bg-[#3a3c41] hover:bg-[#4a4e55] text-white/90 disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus:ring-0"
+ className="h-8 rounded-md px-2 text-sm flex items-center justify-center leading-none bg-[#3a3c41] hover:bg-[#4a4e55] text-white/90 disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus:border-none focus-visible:outline-none focus-visible:border-none focus:ring-0 focus-visible:ring-0"
  onClick={() => {
  const siblings = embeds.filter(e => (e.parentId || null) === (settingsNode.parentId || null));
  const pos = siblings.findIndex(e => e.id === settingsNode.id);
@@ -2654,7 +3085,7 @@ function EmbedSidebar({ embeds, activeEmbedId, setActiveEmbedId, onSelectParent,
 >▼</button>
 
  <button
- className="h-10 rounded-lg bg-red-600 hover:bg-red-700 text-white col-span-2 flex items-center justify-center leading-none focus:outline-none focus:ring-0"
+ className="h-10 rounded-lg bg-red-600 hover:bg-red-700 text-white col-span-2 flex items-center justify-center leading-none focus:outline-none focus:border-none focus-visible:outline-none focus-visible:border-none focus:ring-0 focus-visible:ring-0"
  onClick={() => { onDeleteClick && onDeleteClick(settingsNode); closeSettings(); }}
  >Удалить эмбед</button>
  </div>
@@ -2708,12 +3139,12 @@ return (
  case "image":
  return (
  <div data-item-id={it.id} key={(it.id) + "|" + String(imgBust)}
- draggable={previewMode ? true : false}
+ draggable={!previewMode}
  onDragStart={onDragStart(idx)}
  onDragOver={onDragOver(idx)}
  onDrop={onDrop(idx)}
  onDragEnd={onDragEnd}
- className={`${(previewMode && isSelectingComment) ? ' hover:ring-2 hover:ring-[#94db6b] cursor-crosshair ' : ''} relative w-full overflow-hidden rounded-[8px] select-none ${isSelected ? 'ring-2 ring-indigo-500/70' : ''} ${idx > 0 ? 'mt-3' : ''}`}
+ className={`${(previewMode && isSelectingComment) ? ' hover:ring-2 hover:ring-[#9ec070] cursor-crosshair ' : ''} relative w-full overflow-hidden rounded-[8px] select-none ${isSelected ? 'ring-2 ring-indigo-500/70' : ''} ${idx > 0 ? 'mt-3' : ''}`}
  onClick={(e) => {
  if (previewMode && isSelectingComment) {
  const host = e.currentTarget.closest('[data-work-area]');
@@ -2909,13 +3340,13 @@ const handleBtnDragStart = (bi) => (e) => { if (previewMode) return; e.stopPropa
  const handleBtnDragOver = (bi) => (e) => { if (previewMode) return; e.preventDefault(); e.stopPropagation(); setBtnOverIndex(bi); };
  const handleBtnDrop = (bi) => (e) => { if (previewMode) return; e.preventDefault(); e.stopPropagation(); const from = btnDragIndex; const to = bi; setBtnDragIndex(null); setBtnOverIndex(null); if (from === null || to === null || from === to) return; onReorderButtons?.(block.id, from, to); };
  const handleBtnDragEnd = () => { setBtnDragIndex(null); setBtnOverIndex(null); };
- return ( <div data-item-id={block.id} draggable={previewMode ? true : false} onDragStart={onDragStart(idx)} onDragOver={onDragOver(idx)} onDrop={onDrop(idx)} onDragEnd={onDragEnd} className={`mt-3 rounded-md ${selected? 'ring-2 ring-indigo-500/70' : ''} bg-transparent`} onClick={(e) => { if (!previewMode) { e.stopPropagation(); setSelectedBlockId(block.id); } }} style={{ cursor: previewMode ? 'default' : 'grab' }} > <div className="flex flex-wrap items-center gap-2"> {buttons.map((b, bi) => ( <div onMouseEnter={() => { if (previewMode && isSelectingComment) { setHighlightedButtonId(b.id || `btn-${bi}`); } }} onMouseLeave={() => { if (previewMode && isSelectingComment) { setHighlightedButtonId(null); } }} key={b?.id || bi} draggable={previewMode ? true : false} onDragStart={handleBtnDragStart(bi)} onDragOver={handleBtnDragOver(bi)} onDrop={handleBtnDrop(bi)} onDragEnd={handleBtnDragEnd} onClick={(e)=>e.stopPropagation()} className={`${btnOverIndex===bi && btnDragIndex!==null ? 'outline outline-2 outline-indigo-500/60 rounded-md' : ''}`} style={{ cursor: previewMode ? 'default' : 'grab' }} > <ButtonChip btn={b} hoveringForComment={(previewMode && isSelectingComment && highlightedButtonId === (b.id || idx))} colors={colors} onEdit={() => setEditingBtn({ blockId: block.id, btnId: b?.id })} previewMode={previewMode} onMiniEmbedLinkClick={onMiniEmbedLinkClick} onEmbedLinkClick={onEmbedLinkClick} onModalLinkClick={onModalLinkClick} /> </div> ))} {!previewMode && selected && (<button type="button" onClick={() => onAddButton?.(block.id)} className="h-9 px-3 rounded-md border border-dashed border-white/20 text-xs text-white/70 hover:text-white hover:border-white/40" title="Добавить кнопку" > <span className="inline-flex items-center gap-1"> <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"> <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/> </svg> Добавить </span> </button> )} </div> </div> );
+ return ( <div data-item-id={block.id} draggable={!previewMode} onDragStart={onDragStart(idx)} onDragOver={onDragOver(idx)} onDrop={onDrop(idx)} onDragEnd={onDragEnd} className={`mt-3 rounded-md ${selected? 'ring-2 ring-indigo-500/70' : ''} bg-transparent`} onClick={(e) => { if (!previewMode) { e.stopPropagation(); setSelectedBlockId(block.id); } }} style={{ cursor: previewMode ? 'default' : 'grab' }} > <div className="flex flex-wrap items-center gap-2"> {buttons.map((b, bi) => ( <div onMouseEnter={() => { if (previewMode && isSelectingComment) { setHighlightedButtonId(b.id || `btn-${bi}`); } }} onMouseLeave={() => { if (previewMode && isSelectingComment) { setHighlightedButtonId(null); } }} key={b?.id || bi} draggable={!previewMode} onDragStart={handleBtnDragStart(bi)} onDragOver={handleBtnDragOver(bi)} onDrop={handleBtnDrop(bi)} onDragEnd={handleBtnDragEnd} onClick={(e)=>e.stopPropagation()} className={`${btnOverIndex===bi && btnDragIndex!==null ? 'outline outline-2 outline-indigo-500/60 rounded-md' : ''}`} style={{ cursor: previewMode ? 'default' : 'grab' }} > <ButtonChip btn={b} hoveringForComment={(previewMode && isSelectingComment && highlightedButtonId === (b.id || idx))} colors={colors} onEdit={() => setEditingBtn({ blockId: block.id, btnId: b?.id })} previewMode={previewMode} onMiniEmbedLinkClick={onMiniEmbedLinkClick} onEmbedLinkClick={onEmbedLinkClick} onModalLinkClick={onModalLinkClick} /> </div> ))} {!previewMode && selected && (<button type="button" onClick={() => onAddButton?.(block.id)} className="h-9 px-3 rounded-md border border-dashed border-white/20 text-xs text-white/70 hover:text-white hover:border-white/40" title="Добавить кнопку" > <span className="inline-flex items-center gap-1"> <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"> <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/> </svg> Добавить </span> </button> )} </div> </div> );
 }
 
 function HRBlock({ idx, id, colors, selected, setSelectedBlockId, onDragStart, onDragOver, onDrop, onDragEnd, setEditingHrId, previewMode }) {
  return (
  <div
- draggable={previewMode ? true : false}
+ draggable={!previewMode}
  onDragStart={onDragStart(idx)}
  onDragOver={onDragOver(idx)}
  onDrop={onDrop(idx)}
@@ -3020,7 +3451,7 @@ function ListBlock({ idx, block, colors, selected, setSelectedBlockId, onDragSta
  );
 }
 function TextBlock({ idx, block, colors, customEmojis, selected, setSelectedBlockId, onDragStart, onDragOver, onDrop, onDragEnd, setEditingTextId, previewMode }) {
- return ( <div data-item-id={block.id} draggable={previewMode ? true : false} onDragStart={onDragStart(idx)} onDragOver={onDragOver(idx)} onDrop={onDrop(idx)} onDragEnd={onDragEnd} className={`mt-3 rounded-md ${selected? 'ring-2 ring-indigo-500/70' : ''} bg-transparent`} onMouseDown={(e)=>{ if (!previewMode) { e.preventDefault(); e.stopPropagation(); setSelectedBlockId(block.id); setEditingTextId(block.id); } }} onClick={(e) => { if (!previewMode) { e.stopPropagation(); setSelectedBlockId(block.id); setEditingTextId(block.id); } }} style={{ cursor: previewMode ? 'default' : 'grab' }} > <TextBlockView block={block} customEmojis={customEmojis} /></div> );
+ return ( <div data-item-id={block.id} draggable={!previewMode} onDragStart={onDragStart(idx)} onDragOver={onDragOver(idx)} onDrop={onDrop(idx)} onDragEnd={onDragEnd} className={`mt-3 rounded-md ${selected? 'ring-2 ring-indigo-500/70' : ''} bg-transparent`} onMouseDown={(e)=>{ if (!previewMode) { e.preventDefault(); e.stopPropagation(); setSelectedBlockId(block.id); setEditingTextId(block.id); } }} onClick={(e) => { if (!previewMode) { e.stopPropagation(); setSelectedBlockId(block.id); setEditingTextId(block.id); } }} style={{ cursor: previewMode ? 'default' : 'grab' }} > <TextBlockView block={block} customEmojis={customEmojis} /></div> );
 }
 
 function TextWithButtonBlock({ idx, block, colors, customEmojis, selected, setSelectedBlockId, onDragStart, onDragOver, onDrop, onDragEnd, setEditingTextWithButtonId, previewMode, onEmbedLinkClick, onModalLinkClick, onMiniEmbedLinkClick }) {
@@ -3029,7 +3460,7 @@ function TextWithButtonBlock({ idx, block, colors, customEmojis, selected, setSe
 
  return (
  <div data-item-id={block.id}
- draggable={previewMode ? true : false}
+ draggable={!previewMode}
  onDragStart={onDragStart(idx)}
  onDragOver={onDragOver(idx)}
  onDrop={onDrop(idx)}
@@ -3115,7 +3546,7 @@ function TextBlockView({ block, customEmojis = [] }) {
  [&_h2]:text-[20px] [&_h2]:leading-[27px] [&_h2]:font-semibold [&_h2]:my-[2px]
  [&_h3]:text-[19px] [&_h3]:leading-[27px] [&_h3]:font-medium [&_h3]:my-[2px]
  [&_.dc-subtext]:text-[12px] [&_.dc-subtext]:leading-[20px]
- [&_a]:text-[#94db6b] hover:[&_a]:underline
+ [&_a]:text-[#93d36f] hover:[&_a]:underline
  [&_code]:bg-[#1e1f22] [&_code]:px-[4px] [&_code]:py-[2px] [&_code]:rounded-md"
  dangerouslySetInnerHTML={{ __html: html }}
  />
@@ -3221,7 +3652,7 @@ return (
  <div
 className="no-scrollbar overflow-x-auto whitespace-nowrap flex items-center gap-2 py-2 px-2 mt-2 rounded-xl border border-white/10"
  style={{ overscrollBehavior: "contain", scrollbarWidth: "none", msOverflowStyle: "none" }}
- onWheel={(e)=>{ e.preventDefault(); e.stopPropagation(); if(e.deltaY){ e.currentTarget.scrollLeft += e.deltaY * 3; } }}
+ onWheel={(e)=>{ const el = e.currentTarget; if(!el) return; const dx = Math.abs(e.deltaX); const dy = Math.abs(e.deltaY); const delta = dy >= dx ? e.deltaY : e.deltaX; el.scrollLeft += delta * 3; }}
  >
  {Array.isArray(customEmojis) && customEmojis.length > 0 ? (
  customEmojis.map((emoji) => {
@@ -3277,13 +3708,39 @@ className="no-scrollbar overflow-x-auto whitespace-nowrap flex items-center gap-
  ) : null}
  </select>
  </div>
- <div className="flex items-center justify-between pt-2"> <button type="button" onClick={onDelete} className="px-3 py-2 rounded-md bg-red-600 hover:bg-red-700 text-sm font-medium h-9 flex items-center justify-center focus:outline-none focus:ring-0">Удалить</button> <button type="submit" className="px-3 py-2 rounded-md bg-indigo-600 hover:bg-indigo-500 text-sm font-medium h-9 flex items-center justify-center focus:outline-none focus:ring-0"> {isReadOnlyDev ? "Только чтение" : "Сохранить"} </button> </div> </form> );
+ <div className="flex items-center justify-between pt-2"> <button type="button" onClick={onDelete} className="px-3 py-2 rounded-md bg-red-600 hover:bg-red-700 text-sm font-medium h-9 flex items-center justify-center focus:outline-none focus:border-none focus-visible:outline-none focus-visible:border-none focus:ring-0 focus-visible:ring-0">Удалить</button> <button type="submit" className="px-3 py-2 rounded-md bg-[#6a8aec] hover:bg-indigo-500 text-sm font-medium h-9 flex items-center justify-center focus:outline-none focus:border-none focus-visible:outline-none focus-visible:border-none focus:ring-0 focus-visible:ring-0"> {isReadOnlyDev ? "Только чтение" : "Сохранить"} </button> </div> </form> );
 }
 
 function TextEditor({ initial, onSave, onDelete, customEmojis = [] }) {
  const [content, setContent] = React.useState(initial?.content || '');
  const [thumbUrl, setThumbUrl] = React.useState(initial?.thumbUrl || '');
  const taRef = React.useRef(null);
+  const formatSelection = (before, after = before) => {
+    const ta = taRef && taRef.current ? taRef.current : null;
+    if (!ta) return;
+    const start = ta.selectionStart ?? 0;
+    const end = ta.selectionEnd ?? start;
+    const value = typeof content === 'string' ? content : (ta.value || '');
+    const selected = value.slice(start, end);
+    const wrap = before + (selected || '') + (after);
+
+    if (typeof ta.setRangeText === 'function') {
+      // 1) Change the textarea value using native API (goes into browser undo stack)
+      ta.setRangeText(wrap, start, end, 'end');
+      // 2) Tell React about the change via synthetic input event (do NOT call setState directly)
+      const evt = new InputEvent('input', { bubbles: true });
+      ta.dispatchEvent(evt);
+      return;
+    }
+
+    // Fallback (no native setRangeText): manual replace (won't integrate with native undo)
+    const updated = value.slice(0, start) + wrap + value.slice(end);
+    setContent(updated);
+    const caret = start + wrap.length;
+    const placeCaret = () => { try { ta.selectionStart = caret; ta.selectionEnd = caret; ta.focus(); } catch(_) {} };
+    if (window.requestAnimationFrame) requestAnimationFrame(placeCaret); else setTimeout(placeCaret, 0);
+  };
+
 
  const handleSave = (e) => {
  e.preventDefault();
@@ -3295,6 +3752,23 @@ function TextEditor({ initial, onSave, onDelete, customEmojis = [] }) {
  <h3 className="text-base font-semibold">Текстовый блок</h3>
  <div>
  <label className="text-xs uppercase tracking-wide opacity-70">Содержимое (Markdown/Discord)</label>
+
+<div className="flex items-center gap-1 mb-1">
+  <button type="button" className="h-6 w-6 flex items-center justify-center rounded bg-[#3a3c43]/60 hover:bg-[#4a4d55] text-gray-200 hover:text-white text-[11px]"
+    onMouseDown={(e)=>e.preventDefault()} onClick={()=>formatSelection('**','**')} title="Жирный **text**">B</button>
+  <button type="button" className="h-6 w-6 flex items-center justify-center rounded bg-[#3a3c43]/60 hover:bg-[#4a4d55] text-gray-200 hover:text-white italic text-[11px]"
+    onMouseDown={(e)=>e.preventDefault()} onClick={()=>formatSelection('*','*')} title="Курсив *text*">I</button>
+  <button type="button" className="h-6 w-6 flex items-center justify-center rounded bg-[#3a3c43]/60 hover:bg-[#4a4d55] text-gray-200 hover:text-white font-mono text-[11px]"
+    onMouseDown={(e)=>e.preventDefault()} onClick={()=>formatSelection('`','`')} title="Код `code`">`</button>
+  <button type="button" className="h-6 w-6 flex items-center justify-center rounded bg-[#3a3c43]/60 hover:bg-[#4a4d55] text-gray-200 hover:text-white line-through text-[11px]"
+    onMouseDown={(e)=>e.preventDefault()} onClick={()=>formatSelection('~~','~~')} title="Зачеркнутый ~~text~~">S</button>
+  <button type="button" className="h-6 w-6 flex items-center justify-center rounded bg-[#3a3c43]/60 hover:bg-[#4a4d55] text-gray-200 hover:text-white text-[11px]"
+    onMouseDown={(e)=>e.preventDefault()} onClick={()=>formatSelection('> ','')} title="Цитата > text">&gt;</button>
+  <button type="button" className="h-6 w-6 flex items-center justify-center rounded bg-[#3a3c43]/60 hover:bg-[#4a4d55] text-gray-200 hover:text-white text-[11px]"
+    onMouseDown={(e)=>e.preventDefault()} onClick={()=>formatSelection('[','](url)')} title="Ссылка [text](url)">🔗</button>
+</div>
+
+
  <textarea
  ref={taRef}
  value={content}
@@ -3319,7 +3793,7 @@ function TextEditor({ initial, onSave, onDelete, customEmojis = [] }) {
  <div
  className="no-scrollbar overflow-x-auto whitespace-nowrap flex items-center gap-2 py-2 px-2 rounded-xl border border-white/10"
  style={{ overscrollBehavior: "contain", scrollbarWidth: "none", msOverflowStyle: "none" }}
- onWheel={(e)=>{ e.preventDefault(); e.stopPropagation(); if(e.deltaY){ e.currentTarget.scrollLeft += e.deltaY * 3; } }}
+ onWheel={(e)=>{ const el = e.currentTarget; if(!el) return; const dx = Math.abs(e.deltaX); const dy = Math.abs(e.deltaY); const delta = dy >= dx ? e.deltaY : e.deltaX; el.scrollLeft += delta * 3; }}
  >
  {Array.isArray(customEmojis) && customEmojis.length > 0 ? (
  customEmojis.map((emoji) => {
@@ -3343,7 +3817,7 @@ function TextEditor({ initial, onSave, onDelete, customEmojis = [] }) {
  <button
  key={emoji.id || emoji.name}
  type="button"
- className="inline-flex items-center justify-center w-8 h-8 rounded-md hover:opacity-80 active:scale-95 transition bg-transparent hover:ring-1 hover:ring-white/20 focus:outline-none focus:ring-0"
+ className="inline-flex items-center justify-center w-8 h-8 rounded-md hover:opacity-80 active:scale-95 transition bg-transparent hover:ring-1 hover:ring-white/20 focus:outline-none focus:border-none focus-visible:outline-none focus-visible:border-none focus:ring-0 focus-visible:ring-0"
  style={{ backgroundImage: `url(${srcUrl})`, backgroundSize: "contain", backgroundRepeat: "no-repeat", backgroundPosition: "center" }}
  title={emoji.name ? `:${emoji.name}:` : 'emoji'}
  onMouseDown={(e)=>{ e.preventDefault(); }}
@@ -3393,7 +3867,7 @@ function TextEditor({ initial, onSave, onDelete, customEmojis = [] }) {
  <button type="button" onClick={() => onDelete?.()} className="px-3 py-2 rounded-md bg-red-600 hover:bg-red-700 text-sm">
  Удалить блок
  </button>
- <button type="submit" className="px-4 py-2 rounded-md bg-indigo-600 hover:bg-indigo-500 text-sm h-9 flex items-center justify-center focus:outline-none focus:ring-0">Сохранить</button>
+ <button type="submit" className="px-4 py-2 rounded-md bg-[#6a8aec] hover:bg-indigo-500 text-sm h-9 flex items-center justify-center focus:outline-none focus:border-none focus-visible:outline-none focus-visible:border-none focus:ring-0 focus-visible:ring-0">Сохранить</button>
  </div>
  </form>
  );
@@ -3406,6 +3880,32 @@ function TextWithButtonEditor({ initial, onSave, onDelete, embeds, currentEmbedI
  
  
  const taRef = useRef(null);
+  const formatSelection = (before, after = before) => {
+    const ta = taRef && taRef.current ? taRef.current : null;
+    if (!ta) return;
+    const start = ta.selectionStart ?? 0;
+    const end = ta.selectionEnd ?? start;
+    const value = typeof content === 'string' ? content : (ta.value || '');
+    const selected = value.slice(start, end);
+    const wrap = before + (selected || '') + (after);
+
+    if (typeof ta.setRangeText === 'function') {
+      // 1) Change the textarea value using native API (goes into browser undo stack)
+      ta.setRangeText(wrap, start, end, 'end');
+      // 2) Tell React about the change via synthetic input event (do NOT call setState directly)
+      const evt = new InputEvent('input', { bubbles: true });
+      ta.dispatchEvent(evt);
+      return;
+    }
+
+    // Fallback (no native setRangeText): manual replace (won't integrate with native undo)
+    const updated = value.slice(0, start) + wrap + value.slice(end);
+    setContent(updated);
+    const caret = start + wrap.length;
+    const placeCaret = () => { try { ta.selectionStart = caret; ta.selectionEnd = caret; ta.focus(); } catch(_) {} };
+    if (window.requestAnimationFrame) requestAnimationFrame(placeCaret); else setTimeout(placeCaret, 0);
+  };
+
 const otherEmbeds = Array.isArray(embeds) ? embeds : [];
 
  const handleButtonChange = (patch) => {
@@ -3425,6 +3925,23 @@ const otherEmbeds = Array.isArray(embeds) ? embeds : [];
  
  <div>
  <label className="text-xs uppercase tracking-wide opacity-70">Содержимое (Markdown/Discord)</label>
+
+<div className="flex items-center gap-1 mb-1">
+  <button type="button" className="h-6 w-6 flex items-center justify-center rounded bg-[#3a3c43]/60 hover:bg-[#4a4d55] text-gray-200 hover:text-white text-[11px]"
+    onMouseDown={(e)=>e.preventDefault()} onClick={()=>formatSelection('**','**')} title="Жирный **text**">B</button>
+  <button type="button" className="h-6 w-6 flex items-center justify-center rounded bg-[#3a3c43]/60 hover:bg-[#4a4d55] text-gray-200 hover:text-white italic text-[11px]"
+    onMouseDown={(e)=>e.preventDefault()} onClick={()=>formatSelection('*','*')} title="Курсив *text*">I</button>
+  <button type="button" className="h-6 w-6 flex items-center justify-center rounded bg-[#3a3c43]/60 hover:bg-[#4a4d55] text-gray-200 hover:text-white font-mono text-[11px]"
+    onMouseDown={(e)=>e.preventDefault()} onClick={()=>formatSelection('`','`')} title="Код `code`">`</button>
+  <button type="button" className="h-6 w-6 flex items-center justify-center rounded bg-[#3a3c43]/60 hover:bg-[#4a4d55] text-gray-200 hover:text-white line-through text-[11px]"
+    onMouseDown={(e)=>e.preventDefault()} onClick={()=>formatSelection('~~','~~')} title="Зачеркнутый ~~text~~">S</button>
+  <button type="button" className="h-6 w-6 flex items-center justify-center rounded bg-[#3a3c43]/60 hover:bg-[#4a4d55] text-gray-200 hover:text-white text-[11px]"
+    onMouseDown={(e)=>e.preventDefault()} onClick={()=>formatSelection('> ','')} title="Цитата > text">&gt;</button>
+  <button type="button" className="h-6 w-6 flex items-center justify-center rounded bg-[#3a3c43]/60 hover:bg-[#4a4d55] text-gray-200 hover:text-white text-[11px]"
+    onMouseDown={(e)=>e.preventDefault()} onClick={()=>formatSelection('[','](url)')} title="Ссылка [text](url)">🔗</button>
+</div>
+
+
 <textarea
  ref={taRef}
  value={content}
@@ -3437,7 +3954,7 @@ const otherEmbeds = Array.isArray(embeds) ? embeds : [];
  <div
  className="no-scrollbar overflow-x-auto whitespace-nowrap flex items-center gap-2 py-2 px-2 rounded-xl border border-white/10"
  style={{ overscrollBehavior: "contain", scrollbarWidth: "none", msOverflowStyle: "none" }}
- onWheel={(e)=>{ e.preventDefault(); e.stopPropagation(); if(e.deltaY){ e.currentTarget.scrollLeft += e.deltaY * 3; } }}
+ onWheel={(e)=>{ const el = e.currentTarget; if(!el) return; const dx = Math.abs(e.deltaX); const dy = Math.abs(e.deltaY); const delta = dy >= dx ? e.deltaY : e.deltaX; el.scrollLeft += delta * 3; }}
  >
  {Array.isArray(customEmojis) && customEmojis.length > 0 ? (
  customEmojis.map((emoji) => {
@@ -3461,7 +3978,7 @@ const otherEmbeds = Array.isArray(embeds) ? embeds : [];
  <button
  key={emoji.id || emoji.name}
  type="button"
- className="inline-flex items-center justify-center w-8 h-8 rounded-md hover:opacity-80 active:scale-95 transition bg-transparent hover:ring-1 hover:ring-white/20 focus:outline-none focus:ring-0"
+ className="inline-flex items-center justify-center w-8 h-8 rounded-md hover:opacity-80 active:scale-95 transition bg-transparent hover:ring-1 hover:ring-white/20 focus:outline-none focus:border-none focus-visible:outline-none focus-visible:border-none focus:ring-0 focus-visible:ring-0"
  style={{ backgroundImage: `url(${srcUrl})`, backgroundSize: "contain", backgroundRepeat: "no-repeat", backgroundPosition: "center" }}
  title={emoji.name ? `:${emoji.name}:` : 'emoji'}
  onMouseDown={(e)=>{ e.preventDefault(); }}
@@ -3582,8 +4099,8 @@ const otherEmbeds = Array.isArray(embeds) ? embeds : [];
 
  {/* Actions */}
  <div className="flex items-center justify-between pt-2">
- <button type="button" onClick={onDelete} className="px-3 py-2 rounded-md bg-red-600 hover:bg-red-700 text-sm font-medium h-9 flex items-center justify-center focus:outline-none focus:ring-0">Удалить блок</button>
- <button type="submit" className="px-3 py-2 rounded-md bg-indigo-600 hover:bg-indigo-500 text-sm font-medium h-9 flex items-center justify-center focus:outline-none focus:ring-0"> {isReadOnlyDev ? "Только чтение" : "Сохранить"} </button>
+ <button type="button" onClick={onDelete} className="px-3 py-2 rounded-md bg-red-600 hover:bg-red-700 text-sm font-medium h-9 flex items-center justify-center focus:outline-none focus:border-none focus-visible:outline-none focus-visible:border-none focus:ring-0 focus-visible:ring-0">Удалить блок</button>
+ <button type="submit" className="px-3 py-2 rounded-md bg-[#6a8aec] hover:bg-indigo-500 text-sm font-medium h-9 flex items-center justify-center focus:outline-none focus:border-none focus-visible:outline-none focus-visible:border-none focus:ring-0 focus-visible:ring-0"> {isReadOnlyDev ? "Только чтение" : "Сохранить"} </button>
  </div>
  </form>
  );
@@ -3625,9 +4142,9 @@ function ListEditor({ initial, onSave, onDelete }) {
  </div>
  <div className="text-[11px] opacity-70 mb-2">Формат пункта: <code>Заголовок|Описание|emoji|selected|mini:ID</code></div>
  <div className="flex justify-between">
- <button type="button" onClick={addItem} className="px-3 py-2 rounded-md bg-[#4f545c] hover:bg-[#5d6269] text-sm h-9 flex items-center justify-center focus:outline-none focus:ring-0">Добавить пункт</button>
+ <button type="button" onClick={addItem} className="px-3 py-2 rounded-md bg-[#4f545c] hover:bg-[#5d6269] text-sm h-9 flex items-center justify-center focus:outline-none focus:border-none focus-visible:outline-none focus-visible:border-none focus:ring-0 focus-visible:ring-0">Добавить пункт</button>
  <div className="flex gap-2">
- <button type="button" onClick={onDelete} className="px-3 py-2 rounded-md bg-red-600 hover:bg-red-700 text-sm h-9 flex items-center justify-center focus:outline-none focus:ring-0">Удалить блок</button>
+ <button type="button" onClick={onDelete} className="px-3 py-2 rounded-md bg-red-600 hover:bg-red-700 text-sm h-9 flex items-center justify-center focus:outline-none focus:border-none focus-visible:outline-none focus-visible:border-none focus:ring-0 focus-visible:ring-0">Удалить блок</button>
  <button type="button" onClick={() => onSave({ listItems: items })} className="px-3 py-2 rounded-md bg-green-600 hover:bg-green-700 text-sm">Сохранить</button>
  </div>
  </div>
@@ -3645,7 +4162,7 @@ function CommentsSidebar({ comments, activeId, onAdd, onChange, onDelete, onFocu
  <button
  type="button"
  onClick={onCancel}
- className="px-3 py-1.5 rounded-md bg-red-600 hover:bg-red-700 text-xs focus:outline-none focus:ring-0"
+ className="px-3 py-1.5 rounded-md bg-red-600 hover:bg-red-700 text-xs focus:outline-none focus:border-none focus-visible:outline-none focus-visible:border-none focus:ring-0 focus-visible:ring-0"
  title="Выйти из режима выделения"
  >
  Отмена
@@ -3654,7 +4171,7 @@ function CommentsSidebar({ comments, activeId, onAdd, onChange, onDelete, onFocu
  <button
  type="button"
  onClick={onAdd}
- className="px-3 py-1.5 rounded-md bg-[#4f545c] hover:bg-[#5d6269] text-xs focus:outline-none focus:ring-0"
+ className="px-3 py-1.5 rounded-md bg-[#4f545c] hover:bg-[#5d6269] text-xs focus:outline-none focus:border-none focus-visible:outline-none focus-visible:border-none focus:ring-0 focus-visible:ring-0"
  title="Добавить комментарий"
  >
  Добавить комментарий
@@ -3670,7 +4187,7 @@ function CommentsSidebar({ comments, activeId, onAdd, onChange, onDelete, onFocu
  <div
  key={c.id}
  data-comment-card
- className={`rounded-lg border ${activeId===c.id ? 'border-indigo-500' : 'border-[#202225]'} bg-[#94db6b14] p-2 min-h-[120px]`}
+ className={`rounded-lg border ${activeId===c.id ? 'border-[#93d36f]' : 'border-[#202225]'} bg-[#93d36f14] p-2 min-h-[120px]`}
  onClick={(e) => { e.stopPropagation(); onFocus && onFocus(c.id); }}
  >
  <div className="flex items-center justify-between mb-2">
@@ -3706,7 +4223,7 @@ function CommentsSidebar({ comments, activeId, onAdd, onChange, onDelete, onFocu
  aria-label="Показать все выделения"
  onClick={onToggleShowAll}
  className={`relative inline-flex h-6 w-12 items-center rounded-full px-1 transition-colors
- ${showAll ? 'bg-indigo-500 justify-end' : 'bg-white/10 justify-start'} focus:outline-none focus:ring-2 focus:ring-indigo-500/50`}
+ ${showAll ? 'bg-indigo-500 justify-end' : 'bg-white/10 justify-start'} focus:outline-none focus:border-none focus-visible:outline-none focus-visible:border-none focus:ring-2 focus:ring-indigo-500/50`}
  title={showAll ? 'Скрыть неактивные выделения' : 'Показать все выделения'}
  >
  <span className="h-5 w-5 rounded-full bg-white shadow transition-all ring-1 ring-black/10" />
@@ -3718,7 +4235,7 @@ function CommentsSidebar({ comments, activeId, onAdd, onChange, onDelete, onFocu
  </aside>
  );
 }
-function ModalsSidebar({ modals = [], onCreate, onOpen, onOpenSettings }) {
+function ModalsSidebar({ modals = [], onCreate, onOpen, onOpenSettings, activeId }) {
  return (
  <aside className="w-[300px] shrink-0 mt-3">
  <div className="rounded-xl border border-[#202225] bg-[#2b2d31] p-3 flex flex-col">
@@ -3732,7 +4249,7 @@ function ModalsSidebar({ modals = [], onCreate, onOpen, onOpenSettings }) {
  modals.map(m => (
  <button key={m.id}
  type="button" onContextMenu={(e) => { e.preventDefault(); onOpenSettings(m.id); }}
- className="w-full px-3 py-2 rounded-md border border-[#202225] bg-[#313338] text-left text-sm hover:bg-[#3a3d42]"
+ className={`w-full px-3 py-2 rounded-md border border-[#202225] text-left text-sm hover:bg-[#3a3d42] ${activeId === m.id ? "bg-[#5865f2] text-white" : "bg-[#313338] text-white/90"}`}
  onClick={() => { onOpen && onOpen(m.id); }}
  >
  {m.title}
@@ -3740,7 +4257,7 @@ function ModalsSidebar({ modals = [], onCreate, onOpen, onOpenSettings }) {
  ))
  )}
  </div>
- <button type="button" onClick={onCreate} className="mt-3 px-3 py-2 rounded-md bg-[#4f545c] hover:bg-[#5d6269] text-sm font-medium h-9 flex items-center justify-center leading-none focus:outline-none focus:ring-0">Создать окно</button>
+ <button type="button" onClick={onCreate} className="mt-3 px-3 py-2 rounded-md bg-[#4f545c] hover:bg-[#5d6269] text-sm font-medium h-9 flex items-center justify-center leading-none focus:outline-none focus:border-none focus-visible:outline-none focus-visible:border-none focus:ring-0 focus-visible:ring-0">Создать окно</button>
  </div>
  </aside>
  );
@@ -3772,7 +4289,7 @@ function ToastHost() {
  );
 }
 
-function MiniEmbedsSidebar({ miniEmbeds, onCreate, onOpen, activeId, onRename, onReorder, onDelete }) {
+function MiniEmbedsSidebar({ miniEmbeds, onCreate, onOpen, activeId, onRename, onReorder, onDelete, remoteEmbedStatuses = {} }) {
  const [renameId, setRenameId] = React.useState(null);
  const [renameValue, setRenameValue] = React.useState("");
 
@@ -3803,7 +4320,7 @@ return (
  <button
  type="button"
  onClick={onCreate}
- className="h-7 px-3 rounded-md bg-[#4f535c] hover:bg-[#5d6269] text-xs text-white flex items-center justify-center leading-none focus:outline-none focus:ring-0"
+ className="h-7 px-3 rounded-md bg-[#4f535c] hover:bg-[#5d6269] text-xs text-white flex items-center justify-center leading-none focus:outline-none focus:border-none focus-visible:outline-none focus-visible:border-none focus:ring-0 focus-visible:ring-0"
  >
  Создать
  </button>
@@ -3811,8 +4328,21 @@ return (
  {Array.isArray(miniEmbeds) && miniEmbeds.length > 0 ? (
  <div className="flex flex-col gap-2">
  {miniEmbeds.map((m) => (
- <button key={m.id} type="button" onContextMenu={(e) => { e.preventDefault(); openRename(m); }} onClick={() => { onOpen && onOpen(m.id); }} className={`w-full px-3 py-2 rounded-md border text-left text-sm transition ${activeId === m.id ? "bg-violet-500 text-white" : "border-[#202225] bg-[#313338] text-white/90 hover:bg-[#3a3d42]"}` }>
- {m.name || 'Без названия'}
+ <button
+  key={m.id}
+  type="button"
+  onContextMenu={(e) => { e.preventDefault(); openRename(m); }}
+  onClick={() => { onOpen && onOpen(m.id); }}
+  className={`w-full px-3 py-2 rounded-md border border-[#202225] text-left text-sm ${activeId === m.id ? "bg-[#8b5cf6] text-white hover:bg-[#8b5cf6]" : "bg-[#313338] text-white/90 hover:bg-[#3a3d42]"}`}
+  style={{
+    backgroundImage: !(activeId === m.id) && isDoneStatus((remoteEmbedStatuses?.[m.id] ?? m?.status))
+      ? 'linear-gradient(to right, #9ec07066, transparent)'
+      : (!(activeId === m.id) && isInProgressStatus((remoteEmbedStatuses?.[m.id] ?? m?.status))
+          ? 'linear-gradient(to right, #ff923166, transparent)'
+          : undefined)
+  }}
+>
+  {m.name || 'Без названия'}
  </button>
  ))}
  </div>
@@ -3830,7 +4360,7 @@ return (
  value={renameValue}
  onChange={(e) => setRenameValue(e.target.value)}
  placeholder="Новое название"
- className="w-full px-3 py-2 rounded-md bg-[#1e1f22] border border-[#2a2c30] focus:outline-none focus:ring-1 focus:ring-[#5865f2]"
+ className="w-full px-3 py-2 rounded-md bg-[#1e1f22] border border-[#2a2c30] focus:outline-none focus:border-none focus-visible:outline-none focus-visible:border-none focus:ring-1 focus:ring-[#5865f2]"
  autoFocus
  />
  {/* Стрелки перемещения — как в редакторе эмбеда */}
@@ -3877,8 +4407,8 @@ return (
  Удалить
  </button>
  <div className="flex items-center gap-2">
- <button type="button" onClick={closeRename} className="px-3 py-2 rounded-md bg-[#4f535c] hover:bg-[#5d6269] text-sm h-9 flex items-center justify-center focus:outline-none focus:ring-0">Отмена</button>
- <button type="submit" className="px-3 py-2 rounded-md bg-indigo-600 hover:bg-indigo-700 text-sm h-9 flex items-center justify-center focus:outline-none focus:ring-0">Сохранить</button>
+ <button type="button" onClick={closeRename} className="px-3 py-2 rounded-md bg-[#4f535c] hover:bg-[#5d6269] text-sm h-9 flex items-center justify-center focus:outline-none focus:border-none focus-visible:outline-none focus-visible:border-none focus:ring-0 focus-visible:ring-0">Отмена</button>
+ <button type="submit" className="px-3 py-2 rounded-md bg-[#6a8aec] hover:bg-indigo-700 text-sm h-9 flex items-center justify-center focus:outline-none focus:border-none focus-visible:outline-none focus-visible:border-none focus:ring-0 focus-visible:ring-0">Сохранить</button>
  </div>
  </div>
 
@@ -3904,5 +4434,52 @@ function GateApp() {
  </div>
  );
 }
+
+// ===== [EXPORTER] DevInspectBar (with V2 + JS export) =====
+function DevInspectBar({ currentEmbed, parentEmbed, embeds, activeEmbedId }) {
+  if (!DEV_EXPORT) return null;
+
+  function resolveEmbed() {
+    if (currentEmbed && typeof currentEmbed === 'object') return currentEmbed;
+    if (parentEmbed && typeof parentEmbed === 'object') return parentEmbed;
+    if (Array.isArray(embeds)) {
+      if (activeEmbedId) {
+        const byActive = embeds.find(e => e && e.id === activeEmbedId);
+        if (byActive) return byActive;
+      }
+      return embeds[0];
+    }
+    return null;
+  }
+
+  const handleExportV2 = () => {
+    const embed = resolveEmbed();
+    if (!embed) return alert('Сначала выбери/создай эмбед');
+    const payload = exportEmbedV2(embed);
+    const slug = (embed.slug || embed.name || embed.id || 'rustify_embed').toString().replace(/\s+/g,'_').toLowerCase();
+    const text = JSON.stringify(payload, null, 2);
+    downloadText(text, slug + '.components.v2.json');
+  };
+
+  const handleExportTSV2 = () => {
+    const embed = resolveEmbed();
+    if (!embed) return alert('Сначала выбери/создай эмбед');
+    const fn = (typeof exportEmbedCode === 'function') ? exportEmbedCode : (window.RustifyExport && window.RustifyExport.exportEmbedCode);
+    if (!fn) return alert('exportEmbedCode не найден: проверь импорт и файл rustify_embed_export_v1.js');
+    const code = fn(embed);
+    const slug = (embed.slug || embed.name || embed.id || 'rustify_embed').toString().replace(/\s+/g,'_').toLowerCase();
+    downloadText(code, slug + '.embed.v2.js');
+  };
+
+  return (
+    <div className="mb-3 p-2 rounded-lg border border-white/10 bg-black/30 flex items-center gap-2 text-xs">
+      <button onClick={handleExportV2} className="px-3 h-8 rounded bg-[#5865F2] hover:bg-[#4752C4] text-white">JSON</button>
+      <button onClick={handleExportTSV2} className="px-3 h-8 rounded bg-[#6a8aec] hover:bg-[#536de0] text-white">TS Code</button>
+    </div>
+  );
+}
+// ===== [EXPORTER] end DevInspectBar =====
+
+
 
 export default GateApp;
