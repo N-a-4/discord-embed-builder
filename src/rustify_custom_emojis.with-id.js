@@ -4,10 +4,10 @@
 
 export const customEmojis = [
   // пример:
-  { name: 'support', url: 'https://your.cdn/emoji/support.png' , id: ''},
-  { name: 'rating',  url: 'https://your.cdn/emoji/rating.png'  , id: ''},
+  { name: 'support', url: 'https://your.cdn/emoji/support.png' },
+  { name: 'rating',  url: 'https://your.cdn/emoji/rating.png'  },
   // добавляй свои:
-  { name: 'my_emoji', url: 'https://your.cdn/emoji/my_emoji.png' , id: ''},
+  { name: 'my_emoji', url: 'https://your.cdn/emoji/my_emoji.png' },
 ];
 
 // Автоматически прокинем в window на случай прямого использования экспортера

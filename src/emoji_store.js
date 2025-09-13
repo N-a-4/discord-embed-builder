@@ -1,15 +1,28 @@
-// emoji_store.js
-// Global registry for emojis shared across all projects (browser localStorage).
-// Exposes window.RustifyEmojiStore with:
-//  - getAll(), setAll(list)
-//  - addOrUpdate(url, name)
-//  - removeById(id), removeByUrl(url)
-//  - resolveName({url, id, unicode})
-//  - normalizeUrl(url)
-//  - isEmpty()
-//  - seedOnceFromList(list, flagKey='RUSTIFY_SEEDED_FROM_ADMIN')
+/**
+ * emoji_store.js (configurable)
+ * Global registry for emojis shared across all projects (browser localStorage).
+ * Exposes window.RustifyEmojiStore with:
+ *  - getAll(), setAll(list)
+ *  - addOrUpdate(url, name)
+ *  - removeById(id), removeByUrl(url)
+ *  - resolveName({url, id, unicode})
+ *  - normalizeUrl(url)
+ *  - isEmpty()
+ *  - seedOnceFromList(list, flagKey='RUSTIFY_SEEDED_FROM_ADMIN')
+ *
+ * Config switches:
+ *   - KEEP_QUERY_PARAMS: if true, query params are NOT stripped in normalizeUrl()
+ *   - DEDUPE_BY_DISCORD_ID: if true, /emojis/{id}.(png|gif|webp) considered same emoji
+ *   - DEDUPE_BY_NORMALIZED_URL: if true, normalized URL collisions merge into one emoji
+ */
 (function(){
   const KEY = 'RUSTIFY_GLOBAL_EMOJIS_V1';
+
+  // ==== CONFIG (you can tweak) ====
+  const KEEP_QUERY_PARAMS = false;         // set true to treat ?v=... as distinct
+  const DEDUPE_BY_DISCORD_ID = true;       // set false to allow duplicates even with same /emojis/{id}.png
+  const DEDUPE_BY_NORMALIZED_URL = true;   // set false to allow duplicates with same base URL
+  // =================================
 
   function load(){
     try{
@@ -30,9 +43,10 @@
     if(!url) return '';
     try{
       const u = new URL(String(url));
-      return `${u.origin}${u.pathname}`; // strip query
+      return KEEP_QUERY_PARAMS ? u.toString() : (u.origin + u.pathname);
     }catch{
-      return String(url).split('?')[0];
+      const s = String(url);
+      return KEEP_QUERY_PARAMS ? s : s.split('?')[0];
     }
   }
 
@@ -60,17 +74,20 @@
     const base = normalizeUrl(url);
     const id = extractId(url);
 
-    let e = (id && data.emojis.find(x => x.id === id))
-         || data.emojis.find(x => (x.urls||[]).some(u => normalizeUrl(u) === base))
-         || data.emojis.find(x => (x.urls||[]).includes(url));
-
-    if(!e){
-      e = { id: id || null, name: String(name), urls: [url], aliases: [] };
+    let e = null;
+    if (DEDUPE_BY_DISCORD_ID && id){
+      e = data.emojis.find(x => x.id === id) || null;
+    }
+    if (!e && DEDUPE_BY_NORMALIZED_URL){
+      e = data.emojis.find(x => (x.urls||[]).some(u => normalizeUrl(u) === base)) || null;
+    }
+    if (!e){
+      e = { id: (DEDUPE_BY_DISCORD_ID ? (id || null) : null), name: String(name), urls: [url], aliases: [] };
       data.emojis.push(e);
     }else{
       if(!e.urls) e.urls = [];
       if(!e.urls.includes(url)) e.urls.push(url);
-      if(String(e.name) != String(name)){
+      if(String(e.name) !== String(name)){
         e.aliases = Array.isArray(e.aliases) ? e.aliases : [];
         if(!e.aliases.includes(String(name))) e.aliases.push(String(name));
       }
@@ -97,18 +114,21 @@
   function resolveName({ url, id, unicode }){
     if(isUnicodeEmoji(unicode || url)){ return String(unicode || url); }
     const data = load();
-    if(id){
+    if(id && DEDUPE_BY_DISCORD_ID){
       const hit = data.emojis.find(e => e.id === id);
       if(hit && hit.name) return String(hit.name);
     }
     if(url){
       const base = normalizeUrl(url);
-      let e = data.emojis.find(x => (x.urls||[]).some(u => normalizeUrl(u) === base));
-      if(e && e.name) return String(e.name);
-      e = data.emojis.find(x => (x.urls||[]).includes(url));
-      if(e && e.name) return String(e.name);
+      if (DEDUPE_BY_NORMALIZED_URL){
+        const byBase = data.emojis.find(x => (x.urls||[]).some(u => normalizeUrl(u) === base));
+        if(byBase && byBase.name) return String(byBase.name);
+      }
+      const exact = data.emojis.find(x => (x.urls||[]).includes(url));
+      if(exact && exact.name) return String(exact.name);
+      
       const eid = extractId(url);
-      if(eid){
+      if(DEDUPE_BY_DISCORD_ID && eid){
         const byId = data.emojis.find(x => x.id === eid);
         if(byId && byId.name) return String(byId.name);
       }

@@ -1,3 +1,4 @@
+import { APP_ID, logGlobalEmojiPath } from './appconfig.js';
 // == Build note ==// --- 3-state pill toggle for statuses: "Готово" | "В работе" | "Ожидание"
 
 // ---- auto-prune helpers (remove empty blocks) ----
@@ -170,7 +171,7 @@ import DOMPurify from "dompurify";
 import { query, limit, collection, deleteDoc, doc, getDocs, getFirestore, onSnapshot, setDoc, updateDoc, getDoc } from "firebase/firestore";
 // --- Firebase Config (placeholders, will be populated by the environment) ---
 const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+const appId = APP_ID;
 
 // --- Global default banner ---
 const DEFAULT_BANNER_URL = "https://i.ibb.co/gM3ZJYGt/vidget.png?ex=689d27e1&is=689bd661&hm=0ba370ab75ace8478cbcc6c596b0dda51c9a9dc41b055f881c3ef83371f7e094&=&format=webp&quality=lossless&width=1100&height=330";
@@ -419,7 +420,7 @@ function InnerApp() {
       const devNow = current && (current.uid === DEV_UID || current.email === DEV_EMAIL);
       const _uid = devNow ? OWNER_UID : (current ? current.uid : null);
       if (!_db || !_uid) return;
-      const colRef = collection(_db, `artifacts/${appId}/users/${_uid}/embedStatuses`);
+      const colRef = collection(_db, `artifacts/${APP_ID}/users/${_uid}/embedStatuses`);
       const unsub = onSnapshot(colRef, (qs) => {
         const m = {};
         qs.forEach(docSnap => {
@@ -455,7 +456,7 @@ function InnerApp() {
  const devNow = current && (current.uid === DEV_UID || current.email === DEV_EMAIL);
  const _uid = devNow ? OWNER_UID : (current ? current.uid : null);
  if (showLoadModal && _db && _uid && !savesCollectionRef.current) {
- const path = `artifacts/${appId}/users/${_uid}/embedBuilderSaves`;
+ const path = `artifacts/${APP_ID}/users/${_uid}/embedBuilderSaves`;
  savesCollectionRef.current = collection(_db, path);
  
  }
@@ -499,6 +500,8 @@ const [embeds, setEmbeds] = useState(() => [createDefaultEmbed()]);
  
  }, [activeMiniEmbedId]);
 const [customEmojis, setCustomEmojis] = useState([]);
+const customEmojisRef = React.useRef([]);
+React.useEffect(()=>{ customEmojisRef.current = customEmojis; }, [customEmojis]);
 
   // === Global emoji sync helpers ===
   const debounce = (fn, ms=600) => { let t=null; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), ms); }; };
@@ -513,16 +516,17 @@ const [customEmojis, setCustomEmojis] = useState([]);
   }, []);
 
   // app-level Firestore doc
-  const getAppGlobalRef = React.useCallback(() => doc(firebaseDb, 'artifacts', appId || 'default-app-id', 'globals', 'globalEmojis'), [firebaseDb, appId]);
+  const getAppGlobalRef = React.useCallback(() => doc(firebaseDb, 'artifacts', APP_ID, 'globals', 'globalEmojis'), [firebaseDb]);
 
   
 
-const setGlobalFromStore = React.useCallback(async () => {
+const setGlobalFromStore = React.useCallback(async (explicitList=null) => {
   try{
     // Prefer React state (customEmojis) — в нём есть ручной id
     const storeAll = (window && window.RustifyEmojiStore && typeof window.RustifyEmojiStore.getAll === 'function')
       ? window.RustifyEmojiStore.getAll() : [];
-    const list = Array.isArray(customEmojis) && customEmojis.length ? customEmojis : (Array.isArray(storeAll) ? storeAll : []);
+    const list = Array.isArray(explicitList) ? explicitList : (Array.isArray(customEmojis) && customEmojis.length ? customEmojis : (Array.isArray(storeAll) ? storeAll : []));
+    console.log('[EMOJI_DEBUG] counts',{ ui: Array.isArray(customEmojis)?customEmojis.length:0, store: Array.isArray(storeAll)?storeAll.length:0, explicit: Array.isArray(explicitList)?explicitList.length:null });
 
     // Собираем плоский массив без undefined-полей (Firestore их не принимает)
     const flat = (list || []).map(e => {
@@ -536,11 +540,13 @@ const setGlobalFromStore = React.useCallback(async () => {
       return obj;
     }).filter(x => x.name && x.url);
 
-    const payload = { emojis: flat, list: flat, updatedAt: Date.now() };
+    const payload = { emojis: flat, updatedAt: Date.now() };
     console.log('[EMOJI_SAVE] flat', flat);
     console.table(flat);
     console.log('[EMOJI_SAVE] payload', payload); // TEMP LOG
-    await setDoc(getAppGlobalRef(), payload, { merge: true });
+    const ref = getAppGlobalRef(); logGlobalEmojiPath(ref); console.log('[EMOJI_DEBUG] writing to', ref.path, 'payload size', flat.length);
+    await setDoc(ref, payload);
+    try { const snap = await getDoc(ref); console.log('[EMOJI_DEBUG] persisted doc len', Array.isArray(snap.data()?.emojis) ? snap.data().emojis.length : null); } catch {}
     try { const snap = await getDoc(getAppGlobalRef()); console.log('[EMOJI_SAVED] doc', snap.exists() ? snap.data() : null); } catch(err) { console.warn('post-save getDoc failed', err); }
     window.RustifyToast && window.RustifyToast.show('success', 'Глобальные эмодзи сохранены');
   }catch(e){
@@ -635,9 +641,9 @@ React.useEffect(() => {
       const current = (firebaseAuth && firebaseAuth.currentUser) ? firebaseAuth.currentUser : null;
       const devNow = current && (current.uid === DEV_UID || current.email === DEV_EMAIL);
       const _uid = devNow ? OWNER_UID : (current ? current.uid : null);
-      const appId = (typeof __app_id !== 'undefined') ? __app_id : 'default-app-id';
+      const appId = APP_ID;
       if (!_db || !_uid) { if (!cancelled) setHasSavedProjects(false); return; }
-      const savesCol = collection(_db, "artifacts", appId, "users", _uid, "embedBuilderSaves");
+      const savesCol = collection(_db, "artifacts", APP_ID, "users", _uid, "embedBuilderSaves");
       try {
         const snap = await getDocs(query(savesCol, limit(1)));
         if (!cancelled) setHasSavedProjects(!snap.empty);
@@ -740,14 +746,14 @@ async function persistEmbedStatus(nextStatus) {
     const current = (firebaseAuth && firebaseAuth.currentUser) ? firebaseAuth.currentUser : null;
     const devNow = current && (current.uid === DEV_UID || current.email === DEV_EMAIL);
     const _uid = devNow ? OWNER_UID : (current ? current.uid : null);
-    const appId = (typeof __app_id !== 'undefined') ? __app_id : 'default-app-id';
+    const appId = APP_ID;
 
     // Stable embed id (mini first, else parent)
     const embedId = (activeMiniEmbedId ?? activeEmbedId);
     if (!_db || !_uid || !embedId) return;
 
     // Guard: only if there's at least one saved project
-    const savesCol = collection(_db, `artifacts/${appId}/users/${_uid}/embedBuilderSaves`);
+    const savesCol = collection(_db, `artifacts/${APP_ID}/users/${_uid}/embedBuilderSaves`);
     const savesSnap = await getDocs(savesCol);
     if (savesSnap.empty) {
       try { showToast && showToast("Сначала сохраните проект", "error"); } catch {}
@@ -759,7 +765,7 @@ async function persistEmbedStatus(nextStatus) {
     const canonical = map[nextStatus] || nextStatus;
 
     // Write to lightweight subcollection
-    const statusDocRef = doc(collection(_db, `artifacts/${appId}/users/${_uid}/embedStatuses`), embedId);
+    const statusDocRef = doc(collection(_db, `artifacts/${APP_ID}/users/${_uid}/embedStatuses`), embedId);
     await setDoc(statusDocRef, { status: canonical, updatedAt: Date.now() }, { merge: true });
   } catch (e) {
     console.error("persistEmbedStatus failed:", e);
@@ -941,7 +947,7 @@ const handleCloseModal = () => { setModalMode(null); setActiveModalId(null); };
  if (!userId || !_db) return;
 
  setLoadingStatus('loading');
- const path = `artifacts/${appId}/users/${userId}/embedBuilderSaves`;
+ const path = `artifacts/${APP_ID}/users/${userId}/embedBuilderSaves`;
  savesCollectionRef.current = collection(_db, path);
  
  const unsubscribe = onSnapshot(savesCollectionRef.current, (snapshot) => {
@@ -1013,7 +1019,7 @@ const handleCloseModal = () => { setModalMode(null); setActiveModalId(null); };
 
  try {
  if (!savesCollectionRef?.current) {
- const path = `artifacts/${appId}/users/${_uid}/embedBuilderSaves`;
+ const path = `artifacts/${APP_ID}/users/${_uid}/embedBuilderSaves`;
  savesCollectionRef.current = collection(_db, path);
  
  }
@@ -1109,7 +1115,7 @@ const handleCloseModal = () => { setModalMode(null); setActiveModalId(null); };
  setTimeout(() => setStatusMessage(""), 2500);
  return;
  }
- const path = `artifacts/${appId}/users/${_uid}/embedBuilderSaves`;
+ const path = `artifacts/${APP_ID}/users/${_uid}/embedBuilderSaves`;
  ref = collection(_db, path);
  savesCollectionRef.current = ref;
  
@@ -1809,16 +1815,31 @@ const deleteList = (id) => {
  };
 
  // Emoji Handlers
- const addCustomEmoji = (e) => {
+ 
+const addCustomEmoji = (e) => {
   e.preventDefault();
-  if (!newEmojiName.trim() || !newEmojiUrl.trim()) return;
-  if (customEmojis.some(em => em.name === newEmojiName.trim())) { return; }
-  try { window.RustifyEmojiStore?.addOrUpdate(newEmojiUrl.trim(), newEmojiName.trim()); } catch {}
-  syncFromGlobal();
-  try { queueSaveGlobal(); window.RustifyToast && window.RustifyToast.show('success','Сохраняю глобальные эмодзи…'); } catch {}
-  setNewEmojiName('');
-  setNewEmojiUrl('');
+  const name = (newEmojiName || '').trim();
+  const url  = (newEmojiUrl || '').trim();
+  if (!name || !url) return;
+  if (customEmojis.some(em => (em && String(em.name) === name))) { 
+    try { window.RustifyToast && window.RustifyToast.show('error','Эмодзи с таким именем уже есть'); } catch {}
+    return; 
+  }
+  const next = [...(Array.isArray(customEmojis)?customEmojis:[]), { name, url }];
+  setCustomEmojis(next);
+
+  try{
+    const store = (window && window.RustifyEmojiStore && typeof window.RustifyEmojiStore.getAll==='function') ? window.RustifyEmojiStore.getAll() : [];
+    const arr   = Array.isArray(store) ? store.slice() : [];
+    arr.push({ id: null, name, urls: [url], aliases: [] });
+    if (window && window.RustifyEmojiStore && typeof window.RustifyEmojiStore.setAll==='function') { window.RustifyEmojiStore.setAll(arr); }
+  }catch{}
+
+  setGlobalFromStore(next);
+  try { window.RustifyToast && window.RustifyToast.show('success','Глобальные эмодзи сохранены'); } catch {}
+  setNewEmojiName(''); setNewEmojiUrl('');
 };
+
 
  const deleteCustomEmoji = (name) => {
   try { const target = (Array.isArray(customEmojis) ? customEmojis : []).find(e => e.name === name); if (target?.url) { window.RustifyEmojiStore?.removeByUrl(target.url); } } catch {}
@@ -4426,7 +4447,6 @@ function GateApp() {
  isReadOnlyDev = !!(authUser && (authUser.uid === DEV_UID || authUser.email === DEV_EMAIL));
  }, [authUser]);
  if (REQUIRE_AUTH && !authUser) return <LoginForm />;
-
  return (
  <div className="min-h-screen bg-[#1E1F22] text-[#DBDEE1]">
  <InnerApp />
