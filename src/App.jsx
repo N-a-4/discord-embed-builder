@@ -1,5 +1,5 @@
 import { APP_ID, logGlobalEmojiPath, dlog } from './appconfig.js';
-import { exportDiscordBotCV2 } from './exporters/discord_bot_cv2_exporter.js';
+import { handleExportDiscordBotCV2Click } from './exporters/save_export_handler.js';
 // == Build note ==// --- 3-state pill toggle for statuses: "Готово" | "В работе" | "Ожидание"
 
 // ---- auto-prune helpers (remove empty blocks) ----
@@ -4525,7 +4525,7 @@ const handleExportDiscordBotCV2 = async () => {
     embeds: pages
   };
 
-  try { await exportDiscordBotCV2(project); }
+  try { await handleExportDiscordBotCV2Click(project); }
   catch (e) { console.error('[export discord bot cv2] failed', e); alert('Экспорт не удался: ' + (e?.message || e)); }
 };
 if (!embed) return alert('Сначала выбери/создай эмбед');
@@ -4573,7 +4573,7 @@ const handleExportDiscordBotCV2 = async () => {
 
   const project = { format: 'cv2', projectName: (window?.document?.title || 'Rustify Export (CV2)'), embeds: pages };
 
-  try { await exportDiscordBotCV2(project); }
+  try { await handleExportDiscordBotCV2Click(project); }
   catch (e) { console.error('[export discord bot cv2] failed', e); alert('Экспорт не удался: ' + (e?.message || e)); }
 };
 return (

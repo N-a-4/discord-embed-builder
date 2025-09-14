@@ -1,183 +1,409 @@
 // src/exporters/discord_bot_cv2_exporter.js
-export async function exportDiscordBotCV2(projectJson) {
-  const JSZip = await loadJSZip();
-  const zip = new JSZip();
+// SAFE dual‑mode exporter:
+// 1) exportDiscordBotCV2(projectJson) – reads JSON from the editor and generates a bot ZIP
+// 2) exportDiscordBotFromCV2Code(cv2CodeStr) – takes CV2 .embed.v2.js code as text and generates a bot ZIP
+// Includes a simple logger bridge via setExporterLogger(fn)
 
-  zip.file('package.json', JSON.stringify({
-    name: 'rustify-discord-bot-cv2',
-    version: '1.0.0',
-    type: 'module',
-    private: true,
-    scripts: { dev: 'node --watch index.cv2.js', start: 'node index.cv2.js', register: 'node register-commands.js' },
-    dependencies: { 'discord.js': '^14.15.3', 'dotenv': '^16.4.5' }
-  }, null, 2));
+import JSZip from 'jszip';
 
-  zip.file('.env.example', [
-    '# Fill and rename to .env',
-    'DISCORD_TOKEN=YOUR_BOT_TOKEN_HERE',
-    'APPLICATION_ID=YOUR_APPLICATION_ID_HERE',
-    'GUILD_ID=YOUR_TEST_GUILD_ID_HERE',
-    ''
-  ].join('\n'));
-
-  zip.file('exported_project.json', JSON.stringify(projectJson, null, 2));
-
-  zip.file('register-commands.js', `import 'dotenv/config';
-import { REST, Routes } from 'discord.js';
-const token = process.env.DISCORD_TOKEN;
-const appId = process.env.APPLICATION_ID;
-const guildId = process.env.GUILD_ID;
-if (!token || !appId || !guildId) { console.error('Missing DISCORD_TOKEN / APPLICATION_ID / GUILD_ID in .env'); process.exit(1); }
-const commands = [{
-  name: 'rustify',
-  description: 'Открыть навигационные страницы (Components V2)',
-  options: [{ name: 'page', description: 'Стартовая страница (id/slug)', type: 3, required: false }]
-}];
-const rest = new REST({ version: '10' }).setToken(token);
-try { await rest.put(Routes.applicationGuildCommands(appId, guildId), { body: commands }); console.log('Registered slash commands to guild', guildId); }
-catch (e) { console.error('Failed to register commands', e.rawError ?? e); }`);
-
-  zip.file('index.cv2.js', `import 'dotenv/config';
-import {
-  Client, GatewayIntentBits, Partials,
-  ButtonBuilder, ButtonStyle, ActionRowBuilder,
-  MessageFlags,
-  ContainerBuilder, TextDisplayBuilder, SectionBuilder, ThumbnailBuilder,
-  REST, Routes
-} from 'discord.js';
-import fs from 'node:fs';
-
-const DATA = JSON.parse(fs.readFileSync(new URL('./exported_project.json', import.meta.url), 'utf8'));
-const PAGES = new Map(); for (const e of DATA.embeds || []) if (e?.id) PAGES.set(String(e.id), e);
-const state = new Map(); // messageId -> { stack: [id] }
-function findPage(id){ return PAGES.get(String(id)); }
-
-function renderCV2(page){
-  const container = new ContainerBuilder();
-  if (typeof page.color === 'number') container.setAccentColor(page.color);
-  const navButtons = [];
-  for (const item of page.items || []) {
-    if (!item) continue;
-    if (item.type === 'text' && item.text) {
-      container.addTextDisplayComponents(td => td.setContent(String(item.text)));
-    } else if (item.type === 'image' && item.url) {
-      container.addSectionComponents(sec => sec
-        .addTextDisplayComponents(td => td.setContent(item.caption || ''))
-        .setThumbnailAccessory(th => th.setURL(String(item.url)))
-      );
-    } else if (item.type === 'buttons' && Array.isArray(item.buttons)) {
-      for (const b of item.buttons) {
-        const label = String(b.label ?? 'Кнопка');
-        const target = b.linkToEmbedId || b.linkTo;
-        const href = b.href || b.url;
-        if (target && findPage(target)) navButtons.push(new ButtonBuilder().setCustomId('go:'+target).setLabel(label).setStyle(ButtonStyle.Primary));
-        else if (href) navButtons.push(new ButtonBuilder().setLabel(label).setStyle(ButtonStyle.Link).setURL(String(href)));
-      }
-    }
+// ---------------- Logger ----------------
+let LOG = {
+  info: (...a) => console.log('[exporter]', ...a),
+  warn: (...a) => console.warn('[exporter]', ...a),
+  error: (...a) => console.error('[exporter]', ...a),
+};
+export function setExporterLogger(fn){
+  if (typeof fn === 'function') {
+    LOG.info = (...a) => { try{ fn('info', ...a); }catch(_){ } console.log('[exporter]', ...a); };
+    LOG.warn = (...a) => { try{ fn('warn', ...a); }catch(_){ } console.warn('[exporter]', ...a); };
+    LOG.error = (...a) => { try{ fn('error', ...a); }catch(_){ } console.error('[exporter]', ...a); };
   }
-  if (navButtons.length) container.addActionRowComponents(row => row.setComponents(...navButtons.slice(0,5)));
-  container.addActionRowComponents(row => row.setComponents(
-    new ButtonBuilder().setCustomId('sys:back').setLabel('Назад').setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId('sys:home').setLabel('Домой').setStyle(ButtonStyle.Secondary),
-  ));
-  return container;
 }
 
-const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent], partials: [Partials.Channel] });
-client.once('ready', () => console.log('[ready]', client.user.tag));
+// ---------------- Small utils ----------------
 
-client.on('interactionCreate', async (i) => {
-  try {
-    if (i.isChatInputCommand()) {
-      if (i.commandName === 'rustify') {
-        const startId = i.options.getString('page') || (DATA.embeds?.[0]?.id);
-        const start = findPage(startId);
-        if (!start) return i.reply({ content: 'Стартовая страница не найдена: '+startId, ephemeral: true });
-        const view = renderCV2(start);
-        const msg  = await i.reply({ components: [view], flags: MessageFlags.IsComponentsV2, fetchReply: true });
-        state.set(msg.id, { stack: [start.id] });
-      }
-      return;
-    }
-    if (i.isButton()) {
-      const [kind, arg] = String(i.customId).split(':', 2);
-      const s = state.get(i.message.id) || { stack: [] };
-      if (kind === 'go') {
-        const target = findPage(arg); if (!target) return;
-        s.stack.push(target.id);
-        const view = renderCV2(target);
-        await i.update({ components: [view], flags: MessageFlags.IsComponentsV2 });
-        state.set(i.message.id, s);
-        return;
-      }
-      if (kind === 'sys') {
-        if (arg === 'back') {
-          if (s.stack.length > 1) s.stack.pop();
-          const cur = findPage(s.stack.at(-1));
-          const view = renderCV2(cur);
-          await i.update({ components: [view], flags: MessageFlags.IsComponentsV2 });
-          state.set(i.message.id, s);
-          return;
-        }
-        if (arg === 'home') {
-          const homeId = DATA.embeds?.[0]?.id;
-          if (homeId) {
-            s.stack = [homeId];
-            const view = renderCV2(findPage(homeId));
-            await i.update({ components: [view], flags: MessageFlags.IsComponentsV2 });
-            state.set(i.message.id, s);
-          }
-          return;
-        }
-      }
-    }
-  } catch (err) {
-    console.error('[interaction] error', err);
-    try { await i.reply({ content: 'Ошибка обработки', ephemeral: true }); } catch {}
+function stripCv2Imports(code){
+  if (typeof code !== 'string') return '';
+  const lines = code.split(/\r?\n/);
+  const filtered = lines.filter(l =>
+    !/^\s*import\s+.+from\s+['"]discord\.js['"]\s*;?\s*$/i.test(l) &&
+    !/^\s*import\s+['"]dotenv\/config['"]\s*;?\s*$/i.test(l)
+  );
+  return filtered.join('\n');
+}
+
+// No shortcode conversions – safest variant (does not affect runtime)
+function transformEmojiShortcodes(s){ return s; }
+
+function tsStr(raw){
+  // Wrap text into a template literal for the generated TS code
+  const x = String(raw).replace(/`/g, '\\`');
+  return '`' + x + '`';
+}
+
+function styleToEnum(s){
+  switch (String(s || 'secondary').toLowerCase()) {
+    case 'primary': return 'ButtonStyle.Primary';
+    case 'success': return 'ButtonStyle.Success';
+    case 'danger':  return 'ButtonStyle.Danger';
+    case 'link':    return 'ButtonStyle.Link';
+    default:        return 'ButtonStyle.Secondary';
   }
+}
+
+// ---------------- JSON -> CV2 container (minimal safe mapping) ----------------
+
+function itemToContainerComponent(item){
+  if (!item || !item.type) return null;
+
+  if (item.type === 'image' && item.url) {
+    return { type: 'media', media: [{ url: String(item.url) }] };
+  }
+  if (item.type === 'hr') {
+    return { type: 'separator' };
+  }
+  if ((item.type === 'text' || item.type === 'section') && item.content) {
+    const sec = { type: 'section', texts: [ transformEmojiShortcodes(String(item.content)) ] };
+    if (item.thumbUrl) sec.thumbUrl = String(item.thumbUrl);
+    if (item.button) {
+      const b = item.button;
+      const isLink = !!b.href;
+      const customId = isLink ? undefined : String(b.custom_id || b.id || 'btn:x');
+      sec.button = {
+        style: b.style || 'secondary',
+        ...(b.label ? { label: String(b.label) } : {}),
+        ...(isLink ? { url: String(b.href) } : { custom_id: customId })
+      };
+    }
+    return sec;
+  }
+  if (item.type === 'buttons' && Array.isArray(item.buttons)) {
+    const row = { type: 'action_row', components: [] };
+    for (const b of item.buttons) {
+      const isLink = !!b.href;
+      const customId = isLink ? undefined : String(b.custom_id || b.id || 'btn:x');
+      const btn = {
+        type: 'button',
+        style: b.style || 'secondary',
+        ...(b.label ? { label: String(b.label) } : {}),
+        ...(isLink ? { url: String(b.href) } : { custom_id: customId })
+      };
+      row.components.push(btn);
+    }
+    row.components = row.components.slice(0, 5);
+    return row;
+  }
+
+  return null;
+}
+
+function exportContainerJSON(editorEmbed){
+  const e = editorEmbed || {};
+  const items = Array.isArray(e.items) ? e.items : [];
+  const container = { type: 'container', components: [] };
+  const extras = []; // here we could add selects later
+
+  for (const it of items) {
+    const comp = itemToContainerComponent(it);
+    if (comp) container.components.push(comp);
+  }
+  return { components: [container, ...extras] };
+}
+
+// ---------------- CV2 TS code generator ----------------
+
+function buildButtonsInlineTS(buttons){
+  const parts = [];
+  for (const b of (buttons || []).slice(0, 5)) {
+    const lab = b.label ? `.setLabel(${JSON.stringify(String(b.label))})` : '';
+    const idOr = b.url ? `.setURL(${JSON.stringify(String(b.url))})` : `.setCustomId(${JSON.stringify(String(b.custom_id || 'btn:x'))})`;
+    const sty = `.setStyle(${styleToEnum(b.style)})`;
+    parts.push(`new ButtonBuilder()${lab}${idOr}${sty}`);
+  }
+  return parts.join(',\n      ');
+}
+
+function exportDiscordV2CodeTs(v2){
+  const comps = Array.isArray(v2?.components) ? v2.components : [];
+  const container = comps.find(c => c?.type === 'container') || { type:'container', components: [] };
+  const lines = [];
+  lines.push(`const mainContainer = new ContainerBuilder()`);
+
+  for (const c of (container.components || [])) {
+    if (c.type === 'media') {
+      const gallery = (Array.isArray(c.media) ? c.media.slice(0, 10) : []).map(m => `new MediaGalleryItemBuilder().setURL(${JSON.stringify(String(m.url))})`).join(',\n      ');
+      lines.push(`  .addMediaGalleryComponents(mediaGallery => mediaGallery`);
+      if (gallery) {
+        lines.push(`    .addItems(`);
+        lines.push(`      ${gallery}`);
+        lines.push(`    )`);
+      }
+      lines.push(`  )`);
+      continue;
+    }
+    if (c.type === 'separator') {
+      lines.push(`  .addSeparatorComponents(separator => separator.setDivider(true).setSpacing(SeparatorSpacingSize.Large))`);
+      continue;
+    }
+    if (c.type === 'action_row') {
+      const buttons = (Array.isArray(c.components) ? c.components : []).filter(x => x?.type === 'button');
+      if (buttons.length) {
+        lines.push(`  .addActionRowComponents(row => row`);
+        lines.push(`    .addComponents(`);
+        lines.push(`      ${buildButtonsInlineTS(buttons)}`);
+        lines.push(`    )`);
+        lines.push(`  )`);
+      }
+      continue;
+    }
+    if (c.type === 'section') {
+      const texts = Array.isArray(c.texts) ? c.texts : [];
+      if (c.thumbUrl) {
+        lines.push(`  .addSectionComponents(section => section`);
+        for (const t of texts.slice(0, 3)) {
+          lines.push(`    .addTextDisplayComponents(textDisplay => textDisplay.setContent(${tsStr(String(t))}))`);
+        }
+        lines.push(`    .setThumbnailAccessory(thumb => thumb.setURL(${JSON.stringify(String(c.thumbUrl))}))`);
+        if (c.button) {
+          const b = c.button;
+          const lab = b.label ? `.setLabel(${JSON.stringify(String(b.label))})` : '';
+          const idOr = b.url ? `.setURL(${JSON.stringify(String(b.url))})` : `.setCustomId(${JSON.stringify(String(b.custom_id || 'btn:x'))})`;
+          const sty = `.setStyle(${styleToEnum(b.style)})`;
+          lines.push(`    .setButtonAccessory(btn => btn${lab}${idOr}${sty})`);
+        }
+        lines.push(`  )`);
+        continue;
+      }
+      for (const t of texts.slice(0, 3)) {
+        lines.push(`  .addTextDisplayComponents(textDisplay => textDisplay.setContent(${tsStr(String(t))}))`);
+      }
+      if (c.button) {
+        const b = c.button;
+        const lab = b.label ? `.setLabel(${JSON.stringify(String(b.label))})` : '';
+        const idOr = b.url ? `.setURL(${JSON.stringify(String(b.url))})` : `.setCustomId(${JSON.stringify(String(b.custom_id || 'btn:x'))})`;
+        const sty = `.setStyle(${styleToEnum(b.style)})`;
+        lines.push(`  .addActionRowComponents(row => row.addComponents(new ButtonBuilder()${lab}${idOr}${sty}))`);
+      }
+      continue;
+    }
+    if (c.type === 'text') {
+      lines.push(`  .addSectionComponents(section => section`);
+      lines.push(`    .addTextDisplayComponents(textDisplay => textDisplay.setContent(${tsStr(String(c.text || ''))}))`);
+      lines.push(`  )`);
+      continue;
+    }
+  }
+
+  const sendLine = [
+    'await interaction.editReply({',
+    '  flags: MessageFlags.IsComponentsV2,',
+    '  components: [mainContainer]',
+    '})',
+  ].join('\n');
+
+  return [lines.join('\n'), sendLine].join('\n');
+}
+
+// ---------------- Bot file makers ----------------
+
+function makeIndexFromJSON(projectJson){
+  const v2 = exportContainerJSON(projectJson || {});
+  const uiCode = exportDiscordV2CodeTs(v2);
+
+  const code =
+`import 'dotenv/config';
+import {
+  Client, GatewayIntentBits, Partials,
+  ActionRowBuilder, StringSelectMenuBuilder,
+  ButtonBuilder, ButtonStyle,
+  ContainerBuilder, MediaGalleryItemBuilder,
+  SeparatorSpacingSize,
+  MessageFlags
+} from 'discord.js';
+import { REST as DiscordREST } from '@discordjs/rest';
+import { Routes } from 'discord.js';
+
+console.log('[boot] generated by exporter (JSON mode)');
+
+const client = new Client({
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
+  partials: [Partials.Channel]
 });
 
-import { REST, Routes } from 'discord.js';
+client.once('ready', () => console.log('[ready]', client.user.tag));
+
 async function ensureCommands(){
   const token = process.env.DISCORD_TOKEN, appId = process.env.APPLICATION_ID, guildId = process.env.GUILD_ID;
   if (!token || !appId || !guildId) return;
-  const rest = new REST({ version:'10' }).setToken(token);
-  const body = [{ name:'rustify', description:'Открыть навигационные страницы (Components V2)', options:[{name:'page', description:'Стартовая страница (id/slug)', type:3, required:false}] }];
+  const rest = new DiscordREST({ version:'10' }).setToken(token);
+  const body = [{ name: "rustify", description: "Открыть проект Rustify (CV2)", options: [] }];
   try { await rest.put(Routes.applicationGuildCommands(appId, guildId), { body }); console.log('[commands] registered', guildId); }
-  catch(e){ console.warn('[commands] register failed', e.rawError ?? e); }
+  catch(e){ console.warn('[commands] register failed', (e && e.rawError) ? e.rawError : e); }
 }
-await ensureCommands();
-await client.login(process.env.DISCORD_TOKEN);`);
 
-  zip.file('README.md', `# Rustify Discord Bot (CV2)
+client.on('interactionCreate', async (interaction) => {
+  try {
+    if (interaction.isChatInputCommand() && interaction.commandName === 'rustify') {
+      await interaction.deferReply({ ephemeral: false });
+${uiCode.split('\n').map(l => '      ' + l).join('\n')}
+      return;
+    }
+  } catch (err) {
+    console.error('[interaction] error', err);
+    try { await interaction.reply({ content: 'Ошибка обработки', ephemeral: true }); } catch {}
+  }
+});
+
+await ensureCommands();
+await client.login(process.env.DISCORD_TOKEN);
+
+// --- keepalive for Render Web Service ---
+import http from 'node:http';
+const port = process.env.PORT || 3000;
+http.createServer((_, res) => {
+  res.writeHead(200, { 'Content-Type': 'text/plain' });
+  res.end('Bot is running\n');
+}).listen(port, () => console.log('[http] keepalive on', port));
+`;
+
+  return code;
+}
+
+function makeIndexFromCV2Code(cv2CodeRaw){
+  const cleaned = stripCv2Imports(String(cv2CodeRaw || ''));
+  const mod =
+`export async function renderEmbed(interaction, deps){
+  const { ContainerBuilder, MediaGalleryItemBuilder, ButtonBuilder, ButtonStyle, SeparatorSpacingSize, MessageFlags } = deps;
+${cleaned.split('\n').map(l => '  ' + l).join('\n')}
+}`;
+
+  const index =
+`import 'dotenv/config';
+import {
+  Client, GatewayIntentBits, Partials,
+  ActionRowBuilder, StringSelectMenuBuilder,
+  ButtonBuilder, ButtonStyle,
+  ContainerBuilder, MediaGalleryItemBuilder,
+  SeparatorSpacingSize,
+  MessageFlags
+} from 'discord.js';
+import { REST as DiscordREST } from '@discordjs/rest';
+import { Routes } from 'discord.js';
+import { renderEmbed } from './embed.v2.code.js';
+
+console.log('[boot] generated by exporter (CV2 mode)');
+
+const client = new Client({
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
+  partials: [Partials.Channel]
+});
+
+client.once('ready', () => console.log('[ready]', client.user.tag));
+
+async function ensureCommands(){
+  const token = process.env.DISCORD_TOKEN, appId = process.env.APPLICATION_ID, guildId = process.env.GUILD_ID;
+  if (!token || !appId || !guildId) return;
+  const rest = new DiscordREST({ version:'10' }).setToken(token);
+  const body = [{ name: "rustify", description: "Открыть проект Rustify (CV2)", options: [] }];
+  try { await rest.put(Routes.applicationGuildCommands(appId, guildId), { body }); console.log('[commands] registered', guildId); }
+  catch(e){ console.warn('[commands] register failed', (e && e.rawError) ? e.rawError : e); }
+}
+
+client.on('interactionCreate', async (interaction) => {
+  try {
+    if (interaction.isChatInputCommand() && interaction.commandName === 'rustify') {
+      await interaction.deferReply({ ephemeral: false });
+      await renderEmbed(interaction, { ContainerBuilder, MediaGalleryItemBuilder, ButtonBuilder, ButtonStyle, SeparatorSpacingSize, MessageFlags });
+      return;
+    }
+  } catch (err) {
+    console.error('[interaction] error', err);
+    try { await interaction.reply({ content: 'Ошибка обработки', ephemeral: true }); } catch {}
+  }
+});
+
+await ensureCommands();
+await client.login(process.env.DISCORD_TOKEN);
+
+// --- keepalive for Render Web Service ---
+import http from 'node:http';
+const port = process.env.PORT || 3000;
+http.createServer((_, res) => {
+  res.writeHead(200, { 'Content-Type': 'text/plain' });
+  res.end('Bot is running\\n');
+}).listen(port, () => console.log('[http] keepalive on', port));
+`;
+
+  return { index, mod };
+}
+
+// ---------------- ZIP builders ----------------
+
+async function buildZipCommon(zip){
+  zip.file('register-commands.js',
+`import 'dotenv/config';
+import { REST } from '@discordjs/rest';
+import { Routes } from 'discord.js';
+async function main(){
+  const token = process.env.DISCORD_TOKEN, appId = process.env.APPLICATION_ID, guildId = process.env.GUILD_ID;
+  if (!token || !appId || !guildId) { console.log('Missing env'); return; }
+  const rest = new REST({ version:'10' }).setToken(token);
+  const body = [{ name: "rustify", description: "Открыть проект Rustify (CV2)", options: [] }];
+  await rest.put(Routes.applicationGuildCommands(appId, guildId), { body });
+  console.log('commands registered', guildId);
+}
+main().catch(console.error);
+`);
+
+  zip.file('package.json', JSON.stringify({
+    name: "discord-bot-from-json-or-cv2",
+    private: true,
+    type: "module",
+    version: "1.2.1",
+    scripts: { start: "node index.cv2.js", register: "node register-commands.js" },
+    dependencies: { "discord.js": "^14.15.3", "@discordjs/rest": "^2.2.1", "dotenv": "^16.4.5" }
+  }, null, 2));
+
+  zip.file('.gitignore', "node_modules\n.env\n");
+  zip.file('README.md',
+`# Discord Bot (CV2 / JSON)
+
+## Быстрый старт
 1) npm i
-2) copy .env.example -> .env and fill DISCORD_TOKEN, APPLICATION_ID, GUILD_ID
+2) Создай .env с переменными: DISCORD_TOKEN, APPLICATION_ID, GUILD_ID
 3) npm run register
 4) npm start
-Then use /rustify in your test guild.`);
 
+## Режимы экспорта
+- JSON: index.cv2.js с UI-кодом, собранным из JSON
+- CV2: index.cv2.js использует embed.v2.code.js (вставленный код)
+`);
+}
+
+// ---------------- Public API ----------------
+
+export async function exportDiscordBotCV2(projectJson){
+  LOG.info('start JSON export');
+  const zip = new JSZip();
+  zip.file('exported_project.json', JSON.stringify(projectJson || {}, null, 2));
+  const indexCode = makeIndexFromJSON(projectJson || {});
+  zip.file('index.cv2.js', indexCode);
+  await buildZipCommon(zip);
   const blob = await zip.generateAsync({ type: 'blob' });
-  triggerDownload(blob, 'rustify-discord-bot-cv2.zip');
+  LOG.info('ZIP blob generated');
+  return blob;
 }
 
-function triggerDownload(blob, filename){
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 2000);
+export async function exportDiscordBotFromCV2Code(cv2CodeStr){
+  LOG.info('start CV2 code export');
+  const zip = new JSZip();
+  const { index, mod } = makeIndexFromCV2Code(cv2CodeStr || '');
+  zip.file('index.cv2.js', index);
+  zip.file('embed.v2.code.js', mod);
+  await buildZipCommon(zip);
+  const blob = await zip.generateAsync({ type: 'blob' });
+  LOG.info('ZIP blob generated');
+  return blob;
 }
 
-async function loadJSZip(){
-  if (window.JSZip) return window.JSZip;
-  await new Promise((resolve, reject) => {
-    const s = document.createElement('script');
-    s.src = 'https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js';
-    s.onload = resolve; s.onerror = reject;
-    document.head.appendChild(s);
-  });
-  if (!window.JSZip) throw new Error('JSZip failed to load');
-  return window.JSZip;
-}
+export default exportDiscordBotCV2;
