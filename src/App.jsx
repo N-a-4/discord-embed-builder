@@ -1,5 +1,4 @@
-import { APP_ID, logGlobalEmojiPath, dlog } from './appconfig.js';
-import { handleExportDiscordBotCV2Click } from './exporters/save_export_handler.js';
+import { APP_ID, logGlobalEmojiPath } from './appconfig.js';
 // == Build note ==// --- 3-state pill toggle for statuses: "Готово" | "В работе" | "Ожидание"
 
 // ---- auto-prune helpers (remove empty blocks) ----
@@ -527,7 +526,7 @@ const setGlobalFromStore = React.useCallback(async (explicitList=null) => {
     const storeAll = (window && window.RustifyEmojiStore && typeof window.RustifyEmojiStore.getAll === 'function')
       ? window.RustifyEmojiStore.getAll() : [];
     const list = Array.isArray(explicitList) ? explicitList : (Array.isArray(customEmojis) && customEmojis.length ? customEmojis : (Array.isArray(storeAll) ? storeAll : []));
-    dlog(' counts',{ ui: Array.isArray(customEmojis)?customEmojis.length:0, store: Array.isArray(storeAll)?storeAll.length:0, explicit: Array.isArray(explicitList)?explicitList.length:null });
+    console.log('[EMOJI_DEBUG] counts',{ ui: Array.isArray(customEmojis)?customEmojis.length:0, store: Array.isArray(storeAll)?storeAll.length:0, explicit: Array.isArray(explicitList)?explicitList.length:null });
 
     // Собираем плоский массив без undefined-полей (Firestore их не принимает)
     const flat = (list || []).map(e => {
@@ -542,13 +541,13 @@ const setGlobalFromStore = React.useCallback(async (explicitList=null) => {
     }).filter(x => x.name && x.url);
 
     const payload = { emojis: flat, updatedAt: Date.now() };
-    dlog(' flat', flat);
-    dlog(flat);
-    dlog(' payload', payload); // TEMP LOG
-    const ref = getAppGlobalRef(); logGlobalEmojiPath(ref); dlog(' writing to', ref.path, 'payload size', flat.length);
+    console.log('[EMOJI_SAVE] flat', flat);
+    console.table(flat);
+    console.log('[EMOJI_SAVE] payload', payload); // TEMP LOG
+    const ref = getAppGlobalRef(); logGlobalEmojiPath(ref); console.log('[EMOJI_DEBUG] writing to', ref.path, 'payload size', flat.length);
     await setDoc(ref, payload);
-    try { const snap = await getDoc(ref); dlog(' persisted doc len', Array.isArray(snap.data()?.emojis) ? snap.data().emojis.length : null); } catch {}
-    try { const snap = await getDoc(getAppGlobalRef()); dlog(' doc', snap.exists() ? snap.data() : null); } catch(err) { console.warn('post-save getDoc failed', err); }
+    try { const snap = await getDoc(ref); console.log('[EMOJI_DEBUG] persisted doc len', Array.isArray(snap.data()?.emojis) ? snap.data().emojis.length : null); } catch {}
+    try { const snap = await getDoc(getAppGlobalRef()); console.log('[EMOJI_SAVED] doc', snap.exists() ? snap.data() : null); } catch(err) { console.warn('post-save getDoc failed', err); }
     window.RustifyToast && window.RustifyToast.show('success', 'Глобальные эмодзи сохранены');
   }catch(e){
     console.error('setGlobalFromStore failed', e);
@@ -4484,51 +4483,7 @@ function DevInspectBar({ currentEmbed, parentEmbed, embeds, activeEmbedId }) {
 
   const handleExportTSV2 = () => {
     const embed = resolveEmbed();
-    
-const handleExportDiscordBotCV2 = async () => {
-  const list = Array.isArray(embeds) ? embeds.slice() : [];
-  if (!list.length) return alert('Нет страниц для экспорта');
-
-  const ids = new Set();
-  function normId(x, i) {
-    const base = (x && (x.id || x.slug || x.name || x.title)) ? String(x.id || x.slug || x.name || x.title) : ('page_' + (i+1));
-    let v = base.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9_-]/g, '').toLowerCase() || ('page_' + (i+1));
-    let k = v, n = 1;
-    while (ids.has(k)) { k = v + '_' + (++n); }
-    ids.add(k);
-    return k;
-  }
-
-  const readText = (e) => {
-    if (!e || typeof e !== 'object') return '';
-    return String(e.description || e.content || e.title || e.name || '').trim();
-  };
-
-  const pages = list.map((e, i) => {
-    const id = normId(e, i);
-    const name = String(e.name || e.title || ('Страница ' + (i+1)));
-    const prevId = (i > 0) ? normId(list[i-1], i-1) : null;
-    const nextId = (i < list.length-1) ? normId(list[i+1], i+1) : null;
-    const items = [];
-    const text = readText(e);
-    if (text) items.push({ type: 'text', text });
-    const buttons = [];
-    if (prevId) buttons.push({ label: '← Предыдущая', linkToEmbedId: prevId });
-    if (nextId) buttons.push({ label: 'Следующая →', linkToEmbedId: nextId });
-    if (buttons.length) items.push({ type: 'buttons', buttons });
-    return { id, name, items };
-  });
-
-  const project = {
-    format: 'cv2',
-    projectName: (window?.document?.title || 'Rustify Export (CV2)'),
-    embeds: pages
-  };
-
-  try { await handleExportDiscordBotCV2Click(project); }
-  catch (e) { console.error('[export discord bot cv2] failed', e); alert('Экспорт не удался: ' + (e?.message || e)); }
-};
-if (!embed) return alert('Сначала выбери/создай эмбед');
+    if (!embed) return alert('Сначала выбери/создай эмбед');
     const fn = (typeof exportEmbedCode === 'function') ? exportEmbedCode : (window.RustifyExport && window.RustifyExport.exportEmbedCode);
     if (!fn) return alert('exportEmbedCode не найден: проверь импорт и файл rustify_embed_export_v1.js');
     const code = fn(embed);
@@ -4536,51 +4491,10 @@ if (!embed) return alert('Сначала выбери/создай эмбед');
     downloadText(code, slug + '.embed.v2.js');
   };
 
-  // === Discord Bot (CV2) export ===
-const handleExportDiscordBotCV2 = async () => {
-  const list = Array.isArray(embeds) ? embeds.slice() : [];
-  if (!list.length) return alert('Нет страниц для экспорта');
-
-  const ids = new Set();
-  function normId(x, i) {
-    const base = (x && (x.id || x.slug || x.name || x.title)) ? String(x.id || x.slug || x.name || x.title) : ('page_' + (i+1));
-    let v = base.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9_-]/g, '').toLowerCase() || ('page_' + (i+1));
-    let k = v, n = 1;
-    while (ids.has(k)) { k = v + '_' + (++n); }
-    ids.add(k);
-    return k;
-  }
-
-  const readText = (e) => {
-    if (!e || typeof e !== 'object') return '';
-    return String(e.description || e.content || e.title || e.name || '').trim();
-  };
-
-  const pages = list.map((e, i) => {
-    const id = normId(e, i);
-    const name = String(e.name || e.title || ('Страница ' + (i+1)));
-    const prevId = (i > 0) ? normId(list[i-1], i-1) : null;
-    const nextId = (i < list.length-1) ? normId(list[i+1], i+1) : null;
-    const items = [];
-    const text = readText(e);
-    if (text) items.push({ type: 'text', text });
-    const buttons = [];
-    if (prevId) buttons.push({ label: '← Предыдущая', linkToEmbedId: prevId });
-    if (nextId) buttons.push({ label: 'Следующая →', linkToEmbedId: nextId });
-    if (buttons.length) items.push({ type: 'buttons', buttons });
-    return { id, name, items };
-  });
-
-  const project = { format: 'cv2', projectName: (window?.document?.title || 'Rustify Export (CV2)'), embeds: pages };
-
-  try { await handleExportDiscordBotCV2Click(project); }
-  catch (e) { console.error('[export discord bot cv2] failed', e); alert('Экспорт не удался: ' + (e?.message || e)); }
-};
-return (
+  return (
     <div className="mb-3 p-2 rounded-lg border border-white/10 bg-black/30 flex items-center gap-2 text-xs">
       <button onClick={handleExportV2} className="px-3 h-8 rounded bg-[#5865F2] hover:bg-[#4752C4] text-white">JSON</button>
       <button onClick={handleExportTSV2} className="px-3 h-8 rounded bg-[#6a8aec] hover:bg-[#536de0] text-white">TS Code</button>
-      <button onClick={handleExportDiscordBotCV2} className="px-3 h-8 rounded bg-[#2b7e4a] hover:bg-[#23693e] text-white">Discord Bot (CV2)</button>
     </div>
   );
 }
