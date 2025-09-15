@@ -49,7 +49,6 @@ const pruneEmptyItems = (items) => {
 };
 // ---- end auto-prune helpers ----
 
-
 function StatusToggle3({ value, onChange, disabled = false }) {
   const toIndex = (s) => {
     if (!s) return 1;
@@ -67,7 +66,6 @@ const translate = i === 0
 
   const pillBg = i === 0 ? "#93d36f" : i === 1 ? "#e8ab5c" : "#6366F1";
   const glow = i === 0 ? "0 2px 14px rgba(147,211,111,0.35)" : i === 1 ? "0 2px 14px rgba(232,171,92,0.35)" : "0 2px 14px rgba(106,138,236,0.35)";
-
 
   return (
     <div className="relative inline-grid grid-cols-3 items-center rounded-[0.75rem] bg-[#1f2226] border border-[#33363a] select-none">
@@ -105,7 +103,6 @@ const translate = i === 0
     </div>
   );
 }
-
 
 // --- helpers: treat both localized and canonical codes ---
 function isDoneStatus(s) {
@@ -321,7 +318,6 @@ function useAuthUser() {
  React.useEffect(() => {
  if (!firebaseAuth) return;
  const unsub = onAuthStateChanged(firebaseAuth, (u) => setAuthUser(u));
-  
 
  return () => unsub && unsub();
  }, []);
@@ -433,7 +429,6 @@ function InnerApp() {
     } catch (e) { console.error("subscribe embedStatuses:", e); }
   }, [appId]);
 
-
  // --- Firebase State ---
  const [db, setDb] = useState(null);
  const OWNER_UID = "CbDBpHybZeebVrj3BpeRUxrXBhq1";
@@ -518,46 +513,53 @@ React.useEffect(()=>{ customEmojisRef.current = customEmojis; }, [customEmojis])
   // app-level Firestore doc
   const getAppGlobalRef = React.useCallback(() => doc(firebaseDb, 'artifacts', APP_ID, 'globals', 'globalEmojis'), [firebaseDb]);
 
-  
+const setGlobalFromStore = React.useCallback(async (explicitList = null) => {
+  try {
+    const storeAll = (typeof window !== 'undefined'
+      && window.RustifyEmojiStore
+      && typeof window.RustifyEmojiStore.getAll === 'function')
+      ? window.RustifyEmojiStore.getAll()
+      : [];
 
-const setGlobalFromStore = React.useCallback(async (explicitList=null) => {
-  try{
-    // Prefer React state (customEmojis) — в нём есть ручной id
-    const storeAll = (window && window.RustifyEmojiStore && typeof window.RustifyEmojiStore.getAll === 'function')
-      ? window.RustifyEmojiStore.getAll() : [];
-    const list = Array.isArray(explicitList) ? explicitList : (Array.isArray(customEmojis) && customEmojis.length ? customEmojis : (Array.isArray(storeAll) ? storeAll : []));
-    console.log('[EMOJI_DEBUG] counts',{ ui: Array.isArray(customEmojis)?customEmojis.length:0, store: Array.isArray(storeAll)?storeAll.length:0, explicit: Array.isArray(explicitList)?explicitList.length:null });
+    const list = Array.isArray(explicitList)
+      ? explicitList
+      : ((Array.isArray(customEmojis) && customEmojis.length)
+          ? customEmojis
+          : (Array.isArray(storeAll) ? storeAll : []));
 
-    // Собираем плоский массив без undefined-полей (Firestore их не принимает)
-    const flat = (list || []).map(e => {
+    const flat = (list || []).map((e) => {
       const obj = {
         name: e?.name ? String(e.name) : '',
-        url:  e?.url ? String(e.url) : (e?.urls && e.urls[0] ? String(e.urls[0]) : ''),
+        url: e?.url ? String(e.url) : (e?.urls && e.urls[0] ? String(e.urls[0]) : ''),
       };
       if (e && e.id != null && String(e.id).trim() !== '') {
         obj.id = String(e.id).trim();
       }
       return obj;
-    }).filter(x => x.name && x.url);
+    }).filter((x) => x.name && x.url);
 
     const payload = { emojis: flat, updatedAt: Date.now() };
-    console.log('[EMOJI_SAVE] flat', flat);
-    console.table(flat);
-    console.log('[EMOJI_SAVE] payload', payload); // TEMP LOG
-    const ref = getAppGlobalRef(); logGlobalEmojiPath(ref); console.log('[EMOJI_DEBUG] writing to', ref.path, 'payload size', flat.length);
-    await setDoc(ref, payload);
-    try { const snap = await getDoc(ref); console.log('[EMOJI_DEBUG] persisted doc len', Array.isArray(snap.data()?.emojis) ? snap.data().emojis.length : null); } catch {}
-    try { const snap = await getDoc(getAppGlobalRef()); console.log('[EMOJI_SAVED] doc', snap.exists() ? snap.data() : null); } catch(err) { console.warn('post-save getDoc failed', err); }
-    window.RustifyToast && window.RustifyToast.show('success', 'Глобальные эмодзи сохранены');
-  }catch(e){
+
+    const ref = getAppGlobalRef();
+    await setDoc(ref, payload, { merge: true });
+
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.setItem('RUSTIFY_GLOBAL_EMOJIS_V1', JSON.stringify(payload));
+      }
+    } catch {}
+
+    if (typeof window !== 'undefined' && window.RustifyToast) {
+      window.RustifyToast.show('success', 'Глобальные эмодзи сохранены');
+    }
+  } catch (e) {
     console.error('setGlobalFromStore failed', e);
-    window.RustifyToast && window.RustifyToast.show('error', 'Ошибка сохранения глобальных эмодзи');
+    if (typeof window !== 'undefined' && window.RustifyToast) {
+      window.RustifyToast.show('error', 'Ошибка сохранения глобальных эмодзи');
+    }
   }
 }, [getAppGlobalRef, customEmojis]);
-
-
-
-  const queueSaveGlobal = React.useMemo(() => debounce(setGlobalFromStore, 600), [setGlobalFromStore]);
+const queueSaveGlobal = React.useMemo(() => debounce(setGlobalFromStore, 600), [setGlobalFromStore]);
 
   // On mount: always sync from global store and subscribe to Firestore (APP-LEVEL ONLY)
   React.useEffect(() => {
@@ -658,7 +660,6 @@ React.useEffect(() => {
   return () => { cancelled = true; };
 }, []);
 
-
  useEffect(() => { }, [parentEmbed, currentEmbed, activeMiniEmbedId]);
  useEffect(() => {
  const src = activeMiniEmbedId ? 'mini' : 'parent';
@@ -683,7 +684,6 @@ React.useEffect(() => {
       })
     : []
 ), [currentEmbed]);
-
 
  const canvasIndexMap = useMemo(() => {
  if (!currentEmbed || !Array.isArray(currentEmbed.items)) return [];
@@ -717,8 +717,7 @@ React.useEffect(() => {
 }));
  }
  };
- 
- 
+
 // --- Modals (right sidebar) ---
  // Per-embed modals (derived from currentEmbed)
 let modals = (currentEmbed && Array.isArray(currentEmbed.modals)) ? currentEmbed.modals : [];
@@ -1131,8 +1130,7 @@ const handleCloseModal = () => { setModalMode(null); setActiveModalId(null); };
  setTimeout(() => setStatusMessage(""), 2000);
  }
  };
- 
- 
+
  // Создание основного эмбеда без модалки — с автоименем
  const createNewMainEmbedAuto = () => {
  const base = "Новый Embed";
@@ -1260,8 +1258,7 @@ const handleAddSecondaryEmbed = () => {
  // --- Comments (preview) ---
  const [commentsByEmbed, setCommentsByEmbed] = useState({}); // { [embedId]: Array<{id,x,y,w,h,text}> }
  const [isSelectingComment, setIsSelectingComment] = useState(false);
- 
-  
+
   /* === selection-hover highlight for comment mode (outermost, no double outline) === */
   useEffect(() => {
     try {
@@ -1413,8 +1410,6 @@ const handleAddSecondaryEmbed = () => {
   }, [isSelectingComment, previewMode]);
   // === end prevent navigation ===
 
-
-
   // === click-pick for buttons (including text-with-button) during comment mode ===
   useEffect(() => {
     try {
@@ -1441,7 +1436,6 @@ const handleAddSecondaryEmbed = () => {
       return () => { try { host.removeEventListener('click', pick, true); } catch {} };
     } catch {}
   }, [isSelectingComment, activeEmbedId]);
-
 
 const [selectionRect, setSelectionRect] = useState(null);
  // Compute display rect from relative percentages (if present) anchored to target item; fallback to absolute
@@ -1668,7 +1662,6 @@ const onBlockOrButtonCommentCreate = ({ blockId, buttonId, sub }) => {  const id
  setFooterOverIndex(null);
  };
 
- 
  const addFooterMenu = () => {
  if (!currentEmbed || !Array.isArray(currentEmbed.items)) return;
  const existing = currentEmbed.items.find(it => it && it.type === 'buttons' && it.position === 'footer');
@@ -1735,7 +1728,6 @@ const addMenu = () => {
  setEditingTextWithButtonId(id);
  };
 
- 
  const addList = () => {
  const id = `list-${Math.random().toString(36).slice(2, 8)}`;
  const block = { id, type: 'list', listItems: ['Вариант 1', 'Вариант 2', 'Вариант 3'] };
@@ -1840,42 +1832,79 @@ const addCustomEmoji = (e) => {
   setNewEmojiName(''); setNewEmojiUrl('');
 };
 
-
  const deleteCustomEmoji = (name) => {
-  try { const target = (Array.isArray(customEmojis) ? customEmojis : []).find(e => e.name === name); if (target?.url) { window.RustifyEmojiStore?.removeByUrl(target.url); } } catch {}
-  syncFromGlobal();
-  try { queueSaveGlobal(); window.RustifyToast && window.RustifyToast.show('success','Сохраняю глобальные эмодзи…'); } catch {}
+  
+const trimmed = String(name||'').trim();
+if (!trimmed) return;
+let targetUrl = null;
+try {
+  const target = (Array.isArray(customEmojis) ? customEmojis : []).find(e => e && e.name === trimmed);
+  targetUrl = target?.url || null;
+  if (targetUrl && window?.RustifyEmojiStore?.removeByUrl) {
+    window.RustifyEmojiStore.removeByUrl(targetUrl);
+  } else {
+    // Fallback: filter by name/url and rewrite the store
+    const store = window?.RustifyEmojiStore?.getAll ? (window.RustifyEmojiStore.getAll() || []) : [];
+    const nextStore = Array.isArray(store) ? store.filter(e => (e?.name !== trimmed) && (String(e?.urls?.[0]||'') !== String(targetUrl||''))) : [];
+    if (window?.RustifyEmojiStore?.setAll) window.RustifyEmojiStore.setAll(nextStore);
+  }
+} catch {}
+// Deterministic UI update
+const next = (Array.isArray(customEmojis) ? customEmojis : []).filter(e => e && e.name !== trimmed);
+setCustomEmojis(next);
+// Persist immediately with explicit list to avoid debounce/state race
+setGlobalFromStore(next);
+try { window.RustifyToast && window.RustifyToast.show('success','Эмодзи удалён и сохранён'); } catch {}
 };
  const startRenameEmoji = (old) => setEmojiRename({ old, value: old });
  const cancelRenameEmoji = () => setEmojiRename(null);
  const saveRenameEmoji = () => {
-  if (!emojiRename) return;
-  const newName = (emojiRename.value || '').trim();
-  if (!newName) { setEmojiRename(null); return; }
-  if (/[^a-z0-9_]/i.test(newName)) { return; }
-  try {
-    const target = (Array.isArray(customEmojis) ? customEmojis : []).find(e => e.name === emojiRename.old);
-    if (target?.url) { window.RustifyEmojiStore?.addOrUpdate(target.url, newName); }
-  } catch {}
-  syncFromGlobal();
-  try { queueSaveGlobal(); window.RustifyToast && window.RustifyToast.show('success','Сохраняю глобальные эмодзи…'); } catch {}
-  setEmojiRename(null);
+  
+if (!emojiRename) return;
+const newName = (emojiRename.value || '').trim();
+if (!newName) { setEmojiRename(null); return; }
+if (/[^a-z0-9_]/i.test(newName)) { return; }
+let targetUrl = null;
+try {
+  const target = (Array.isArray(customEmojis) ? customEmojis : []).find(e => e.name === emojiRename.old);
+  targetUrl = target?.url || null;
+  if (targetUrl && window?.RustifyEmojiStore?.addOrUpdate) {
+    window.RustifyEmojiStore.addOrUpdate(targetUrl, newName);
+  } else {
+    // Fallback: rewrite the store
+    const store = window?.RustifyEmojiStore?.getAll ? (window.RustifyEmojiStore.getAll() || []) : [];
+    const nextStore = Array.isArray(store) ? store.map(e => (String(e?.urls?.[0]||'') === String(targetUrl||'') ? { ...e, name: newName } : e)) : [];
+    if (window?.RustifyEmojiStore?.setAll) window.RustifyEmojiStore.setAll(nextStore);
+  }
+} catch {}
+// Update UI deterministically
+const next = (Array.isArray(customEmojis) ? customEmojis : []).map(e => (e && e.name === emojiRename.old ? { ...e, name: newName } : e));
+setCustomEmojis(next);
+setGlobalFromStore(next);
+try { queueSaveGlobal && queueSaveGlobal.cancel && queueSaveGlobal.cancel(); } catch {}
+try { window.RustifyToast && window.RustifyToast.show('success','Эмодзи переименован и сохранён'); } catch {}
+setEmojiRename(null);
 };
 const setEmojiIdManual = (name) => {
-  try {
-    const current = (Array.isArray(customEmojis) ? customEmojis : []).find(e => e.name === name)?.id || '';
-    const next = window.prompt('ID эмодзи (Discord Snowflake):', current);
-    if (next === null) return; // canceled
-    const id = String(next).trim();
-    // Optional numeric validation: allow digits only (snowflake)
-    if (id && /\D/.test(id)) {
-      if (!window.confirm('ID содержит нецифровые символы. Всё равно сохранить?')) return;
-    }
-    setCustomEmojis((list) => (Array.isArray(list) ? list : []).map(e => e && e.name === name ? ({ ...e, id }) : e));
-    try { queueSaveGlobal(); window.RustifyToast && window.RustifyToast.show('success','ID эмодзи сохранён'); } catch {}
-  } catch {}
+  
+try {
+  const current = (Array.isArray(customEmojis) ? customEmojis : []).find(e => e.name === name)?.id || '';
+  const next = window.prompt('ID эмодзи (Discord Snowflake):', current);
+  if (next === null) return; // canceled
+  const id = String(next).trim();
+  // Optional numeric validation: allow digits only (snowflake)
+  if (id && /\D/.test(id)) {
+    if (!window.confirm('ID содержит нецифровые символы. Всё равно сохранить?')) return;
+  }
+  setCustomEmojis((list) => {
+    const updated = (Array.isArray(list) ? list : []).map(e => e && e.name === name ? { ...e, id } : e);
+    // Persist immediately using explicit list (avoid debounce)
+    try { setGlobalFromStore(updated); } catch {}
+    return updated;
+  });
+  try { window.RustifyToast && window.RustifyToast.show('success','ID эмодзи сохранён'); } catch {}
+} catch {}
 };
-
 
  // --- Derived current editing items ---
  const currentBtn = useMemo(() => {
@@ -2050,8 +2079,6 @@ const setEmojiIdManual = (name) => {
           style={{ left: highlightRect.left, top: highlightRect.top, width: highlightRect.width, height: highlightRect.height }} />
    </div>
  )}
- 
- 
 
 {showAllHighlights ? (
   <div className="absolute inset-0 z-[9999] pointer-events-auto">
@@ -2193,7 +2220,6 @@ const setEmojiIdManual = (name) => {
  <ModalsSidebar modals={modals} onCreate={handleCreateModal} onOpen={handleOpenModal} onOpenSettings={handleOpenModalSettings} activeId={activeModalId} />
  
  <MiniEmbedsSidebar onDelete={handleDeleteMiniEmbed} onReorder={handleReorderMiniEmbed} onRename={handleRenameMiniEmbed} miniEmbeds={miniEmbeds} onCreate={handleCreateMiniEmbed} onOpen={handleOpenMiniEmbed} activeId={activeMiniEmbedId}  remoteEmbedStatuses={remoteEmbedStatuses} />
- 
 
 {modalMode && (
  <Modal onClose={handleCloseModal} contentClassName="w-[520px] max-w-[95vw]">
@@ -2213,12 +2239,9 @@ const setEmojiIdManual = (name) => {
  value={newModalTitle}
  onChange={(e) => setNewModalTitle(e.target.value)}
  placeholder="Введите название окна"
- 
- 
 
  className="w-full px-3 py-2 rounded-md bg-[#1e1f22] border border-[#2a2c30] focus:outline-none focus:border-none focus-visible:outline-none focus-visible:border-none focus:ring-1 focus:ring-[#5865f2]"
  />
-
 
  <div className="flex justify-end gap-2 pt-2">
  <button type="button" onClick={() => { setModalMode(null); setActiveModalId(null); }} className="px-3 py-2 rounded-md bg-[#4f535c] hover:bg-[#5d6269] text-sm">
@@ -2529,7 +2552,6 @@ const setEmojiIdManual = (name) => {
  </div>
 
  {/* Secondary embed name field */}
- 
 
  {/* Custom Emojis Section */}
  <div className="mt-4 pt-4 border-t border-white/10">
@@ -2579,7 +2601,7 @@ const setEmojiIdManual = (name) => {
  <button onClick={cancelRenameEmoji} className="text-xs text-white/60 hover:text-white/80 h-9 flex items-center justify-center focus:outline-none focus:border-none focus-visible:outline-none focus-visible:border-none focus:ring-0 focus-visible:ring-0">Отмена</button>
  </>
  ) : (<><button onClick={() => startRenameEmoji(emoji.name)} className="text-xs text-blue-400 hover:text-blue-300 font-semibold">Переименовать</button>
- <button onClick={() => setEmojiIdManual(emoji.name)} className="text-xs text-yellow-400 hover:text-yellow-300 font-semibold">ID</button></>
+ </>
  )}
  <button onClick={() => deleteCustomEmoji(emoji.name)} className="text-xs text-red-500 hover:text-red-400 font-semibold">Удалить</button>
  </div>
@@ -2716,7 +2738,6 @@ const setEmojiIdManual = (name) => {
  </div>
  <input name="li_desc" type="text" placeholder="Описание (опционально)" class="w-full rounded-lg border ${colors.border} bg-transparent px-3 py-2 text-sm outline-none" />
 
- 
  <div class="flex items-center gap-2 min-w-0">
  <input
  name="li_emoji"
@@ -2755,8 +2776,6 @@ const setEmojiIdManual = (name) => {
  const isDefault = !!def;
  return (
 
- 
- 
  <div key={idx} className="rounded-lg border border-[#202225] bg-[#23242a] p-3 space-y-2">
  <div className="flex items-center gap-2 min-w-0">
  <input
@@ -2817,7 +2836,6 @@ const setEmojiIdManual = (name) => {
  </div>
  </div>
 
- 
  {/* Список загруженных эмодзи (галерея) */}
  <div className="mt-3">
  <div
@@ -2864,8 +2882,7 @@ const setEmojiIdManual = (name) => {
  <button type="submit" className="px-3 py-2 rounded-md bg-green-600 hover:bg-green-700 text-sm h-9 flex items-center justify-center focus:outline-none focus:border-none focus-visible:outline-none focus-visible:border-none focus:ring-0 focus-visible:ring-0"> {isReadOnlyDev ? "Только чтение" : "Сохранить"} </button>
  </div>
  </div>
- 
- 
+
  </form>
  </Modal>
  )}
@@ -2937,7 +2954,6 @@ function EmbedSidebar({ embeds, activeEmbedId, setActiveEmbedId, onSelectParent,
  const roots = React.useMemo(() => embeds.filter(e => !e.parentId), [embeds]);
  const childrenOf = React.useCallback((pid) => embeds.filter(e => e.parentId === pid), [embeds]);
 
- 
  // Helpers to compute a safe list of potential parents (avoid cycles)
  const buildDescendantsSet = React.useCallback((rootId) => {
  const set = new Set([rootId]);
@@ -3334,7 +3350,6 @@ function ButtonsBlock({ idx, block, colors, selected, setSelectedBlockId, onDrag
  const [btnDragIndex, setBtnDragIndex] = React.useState(null);
  const [btnOverIndex, setBtnOverIndex] = React.useState(null);
 
- 
 const handleClickWith = (btn) => (e) => {
  e.stopPropagation();
  const modalId = typeof btn?.linkToModalId === 'string' ? btn.linkToModalId : '';
@@ -3605,14 +3620,7 @@ function ButtonChip({ btn, colors, onEdit, previewMode, onEmbedLinkClick, onModa
 
  // Canonical init to avoid TDZ & redeclare
  // Canonical init to avoid TDZ
- 
- 
- 
- 
 
- 
-
- 
  if (!previewMode && e) e.stopPropagation();
 if (e && e.ctrlKey) {
  if (miniId) { onMiniEmbedLinkClick && onMiniEmbedLinkClick(miniId); return; }
@@ -3653,7 +3661,6 @@ const [label, setLabel] = useState(initial?.label || "");
  const miniEmbedsLocal = (Array.isArray(miniEmbeds) && miniEmbeds.length)
    ? miniEmbeds
    : (Array.isArray(embeds) ? ((embeds.find(e => e && e.id === currentEmbedId)?.miniEmbeds) || []) : []);
-
 
  const otherEmbeds = Array.isArray(embeds) ? embeds : [];
 
@@ -3762,7 +3769,6 @@ function TextEditor({ initial, onSave, onDelete, customEmojis = [] }) {
     if (window.requestAnimationFrame) requestAnimationFrame(placeCaret); else setTimeout(placeCaret, 0);
   };
 
-
  const handleSave = (e) => {
  e.preventDefault();
  onSave?.({ content, thumbUrl });
@@ -3788,7 +3794,6 @@ function TextEditor({ initial, onSave, onDelete, customEmojis = [] }) {
   <button type="button" className="h-6 w-6 flex items-center justify-center rounded bg-[#3a3c43]/60 hover:bg-[#4a4d55] text-gray-200 hover:text-white text-[11px]"
     onMouseDown={(e)=>e.preventDefault()} onClick={()=>formatSelection('[','](url)')} title="Ссылка [text](url)">🔗</button>
 </div>
-
 
  <textarea
  ref={taRef}
@@ -3883,7 +3888,6 @@ function TextEditor({ initial, onSave, onDelete, customEmojis = [] }) {
  </div>
  </div>
 
- 
 <div className="flex justify-between pt-2">
  <button type="button" onClick={() => onDelete?.()} className="px-3 py-2 rounded-md bg-red-600 hover:bg-red-700 text-sm">
  Удалить блок
@@ -3898,8 +3902,7 @@ function TextWithButtonEditor({ initial, onSave, onDelete, embeds, currentEmbedI
  const { isReadOnlyDev } = React.useContext(AuthUiContext);
  const [content, setContent] = useState(initial?.content || '');
  const [button, setButton] = useState(initial?.button || sanitizeButton({}));
- 
- 
+
  const taRef = useRef(null);
   const formatSelection = (before, after = before) => {
     const ta = taRef && taRef.current ? taRef.current : null;
@@ -3961,7 +3964,6 @@ const otherEmbeds = Array.isArray(embeds) ? embeds : [];
   <button type="button" className="h-6 w-6 flex items-center justify-center rounded bg-[#3a3c43]/60 hover:bg-[#4a4d55] text-gray-200 hover:text-white text-[11px]"
     onMouseDown={(e)=>e.preventDefault()} onClick={()=>formatSelection('[','](url)')} title="Ссылка [text](url)">🔗</button>
 </div>
-
 
 <textarea
  ref={taRef}
@@ -4418,7 +4420,6 @@ return (
  })()}
  </div>
 
- 
  <div className="flex items-center justify-between mt-3">
  <button
  type="button"
@@ -4494,12 +4495,10 @@ function DevInspectBar({ currentEmbed, parentEmbed, embeds, activeEmbedId }) {
   return (
     <div className="mb-3 p-2 rounded-lg border border-white/10 bg-black/30 flex items-center gap-2 text-xs">
       <button onClick={handleExportV2} className="px-3 h-8 rounded bg-[#5865F2] hover:bg-[#4752C4] text-white">JSON</button>
-      <button onClick={handleExportTSV2} className="px-3 h-8 rounded bg-[#6a8aec] hover:bg-[#536de0] text-white">TS Code</button>
+      <button onClick={handleExportTSV2} className="px-3 h-8 rounded bg-[#6a8aec] hover:bg-[#536de0] text-white">Components</button>
     </div>
   );
 }
 // ===== [EXPORTER] end DevInspectBar =====
-
-
 
 export default GateApp;
