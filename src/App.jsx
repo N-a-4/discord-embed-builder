@@ -119,6 +119,7 @@ function isPendingStatus(s) {
 // File tag: mini-profile-fix_v2
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { exportEmbedV2, exportEmbedCode, downloadText } from "./rustify_embed_export_v1.js"; // [EXPORTER]
+import { exportEmbedCode as exportEmbedCodeV2, exportEmbedV2 as exportEmbedV2V2, exportDiscordV2CodeTs as exportDiscordV2CodeTsPatched } from "./rustify_embed_export_v2.js"; // [EXPORTER v2]
 import './emoji_store.js'; // Global Emoji Store init
 // --- Lightweight toast utility (DOM-based, no JSX changes) ---
 (function(){
@@ -632,6 +633,25 @@ const queueSaveGlobal = React.useMemo(() => debounce(setGlobalFromStore, 600), [
  }
  return parentEmbed;
  }, [parentEmbed, activeMiniEmbedId]);
+
+  // --- Export v2 (patched exporter) ---
+  const handleExportV2Main = () => {
+    try {
+      const embed = currentEmbed;
+      if (!embed) { alert('Сначала выбери/создай эмбед'); return; }
+      const fn = (typeof exportDiscordV2CodeTsPatched === 'function')
+        ? exportDiscordV2CodeTsPatched
+        : (window.RustifyExport && window.RustifyExport.exportDiscordV2CodeTs);
+      if (!fn) { alert('exportDiscordV2CodeTs не найден: добавьте exporter_rustify_v2_user_patched.js'); return; }
+      const code = fn(embed);
+      const slug = (embed.slug || embed.name || embed.id || 'rustify_embed').toString().replace(/\s+/g,'_').toLowerCase();
+      downloadText(code, slug + '.embed.v2.js');
+    } catch (e) {
+      console.error('Export v2 failed', e);
+      alert('Export v2: произошла ошибка');
+    }
+  };
+
   const effectiveCurrentStatus = (remoteEmbedStatuses?.[activeMiniEmbedId ?? activeEmbedId]) ?? (currentEmbed ? currentEmbed.status : undefined) ?? "Ожидание";
 // Hide statuses for brand-new projects (no saved docs yet)
 const [hasSavedProjects, setHasSavedProjects] = React.useState(false);
@@ -4482,7 +4502,40 @@ function DevInspectBar({ currentEmbed, parentEmbed, embeds, activeEmbedId }) {
     downloadText(text, slug + '.components.v2.json');
   };
 
-  const handleExportTSV2 = () => {
+  
+  const handleExportV2Top = () => {
+  const embed = resolveEmbed();
+  if (!embed) return alert('Сначала выбери/создай эмбед');
+  const emojiSource = (typeof customEmojis !== 'undefined' && customEmojis) || (typeof window !== 'undefined' && window.customEmojis) || {};
+  try {
+    let code = null;
+    if (typeof exportEmbedCodeV2 === 'function') {
+      code = exportEmbedCodeV2(embed, { customEmojis: emojiSource });
+      console.log('[Export v2] path=exportEmbedCode(embed)');
+    } else if (typeof exportEmbedV2V2 === 'function' && typeof exportDiscordV2CodeTsPatched === 'function') {
+      const v2json = exportEmbedV2V2(embed, { customEmojis: emojiSource });
+      code = exportDiscordV2CodeTsPatched(v2json);
+      console.log('[Export v2] path=exportEmbedV2 -> exportDiscordV2CodeTs');
+    } else if (typeof window !== 'undefined' && window.RustifyExport) {
+      const RX = window.RustifyExport;
+      if (typeof RX.exportEmbedCode === 'function') {
+        code = RX.exportEmbedCode(embed, { customEmojis: emojiSource });
+        console.log('[Export v2] path=window.RustifyExport.exportEmbedCode');
+      } else if (typeof RX.exportEmbedV2 === 'function' && typeof RX.exportDiscordV2CodeTs === 'function') {
+        const v2json = RX.exportEmbedV2(embed, { customEmojis: emojiSource });
+        code = RX.exportDiscordV2CodeTs(v2json);
+        console.log('[Export v2] path=window.RustifyExport.exportEmbedV2->exportDiscordV2CodeTs');
+      }
+    }
+    if (!code) { throw new Error('Экспортер v2 не найден/не подключён'); }
+    const slug = (embed.slug || embed.name || embed.id || 'rustify_embed').toString().replace(/\s+/g,'_').toLowerCase();
+    downloadText(code, slug + '.embed.v2.js');
+  } catch (e) {
+    console.error('Export v2 failed', e);
+    alert('Export v2: произошла ошибка');
+  }
+};
+const handleExportTSV2 = () => {
     const embed = resolveEmbed();
     if (!embed) return alert('Сначала выбери/создай эмбед');
     const fn = (typeof exportEmbedCode === 'function') ? exportEmbedCode : (window.RustifyExport && window.RustifyExport.exportEmbedCode);
@@ -4496,6 +4549,7 @@ function DevInspectBar({ currentEmbed, parentEmbed, embeds, activeEmbedId }) {
     <div className="mb-3 p-2 rounded-lg border border-white/10 bg-black/30 flex items-center gap-2 text-xs">
       <button onClick={handleExportV2} className="px-3 h-8 rounded bg-[#5865F2] hover:bg-[#4752C4] text-white">JSON</button>
       <button onClick={handleExportTSV2} className="px-3 h-8 rounded bg-[#6a8aec] hover:bg-[#536de0] text-white">Components</button>
+      <button onClick={handleExportV2Top} className="px-3 h-8 rounded bg-[#6a8aec] hover:bg-[#536de0] text-white">Export v2</button>
     </div>
   );
 }
