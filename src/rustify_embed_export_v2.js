@@ -1,3 +1,11 @@
+// Patch: auto-URL for link-style buttons -> https://discord.gg/rustify
+
+// Debug logging helpers
+const __DBG__ = (typeof window !== 'undefined') ? (window.__RUSTIFY_DEBUG_EXPORT__ ?? true) : true;
+function dbg(...args){ if(__DBG__) try{ console.log('[EXPORTER]', ...args); }catch{} }
+function dbgGroup(title){ if(__DBG__) try{ console.groupCollapsed('[EXPORTER]', title); }catch{} }
+function dbgGroupEnd(){ if(__DBG__) try{ console.groupEnd(); }catch{} }
+
 
 // rustify_embed_export_v1.js — Components V2 JSON + Etalon-style codegen
 // Version: 2.8 (fix media.addItems closing paren)
@@ -71,13 +79,52 @@ function transformEmojiShortcodes(s){
 }
 
 // ---------------- V2 JSON (Etalon Container) ----------------
+
 function parseListToSelectActionRow(listItem, env){
-  const placeholder = String(listItem.placeholder || 'Выберите вариант');
-  const optsSrc = Array.isArray(listItem.listItems) ? listItem.listItems.slice(0,25) : [];
-  const opts = optsSrc.map((raw, idx) => {
+  const getArr = (obj, keys) => {
+    for (const k of keys) {
+      if (Array.isArray(obj?.[k])) return obj[k];
+    }
+    return null;
+  };
+  const placeholder =
+    String(listItem.placeholder || listItem.hint || listItem.title || 'Выберите вариант');
+
+  // Accept arrays under common keys
+  const optsSrc =
+    getArr(listItem, ['listItems','options','items','values']) ||
+    [];
+
+  // Normalize to {label, value, description?, emoji?}
+  const opts = [];
+  for (let idx = 0; idx < Math.min(optsSrc.length, 25); idx++) {
+    const raw = optsSrc[idx];
+
+    // 1) Object form
+    if (raw && typeof raw === 'object') {
+      const label = String(raw.label ?? raw.text ?? `Вариант ${idx+1}`).slice(0, 100);
+      const value = String((raw.value ?? label.toLowerCase().replace(/\s+/g,'_')) || `opt_${idx+1}`).slice(0, 100);
+      const description = raw.description ? String(raw.description).slice(0, 100) : undefined;
+
+      let emoji = undefined;
+      const emojiSrc = raw.emoji?.name || raw.emoji?.url || raw.emojiUrl || raw.leftEmojiUrl;
+      const name = resolveEmojiName(emojiSrc, env);
+      if (name) emoji = { name };
+
+      const def = !!(raw.default || raw.selected || raw.isDefault);
+      const out = { label, value };
+      if (description) out.description = description;
+      if (emoji) out.emoji = emoji;
+      if (def) out.default = true;
+      opts.push(out);
+      continue;
+    }
+
+    // 2) String form: "Label|Description|:emoji:|selected|value"
     const s = String(raw || '');
+    if (!s) continue;
     const parts = s.split('|');
-    const label = (parts[0] || `Вариант ${idx+1}`).trim();
+    const label = (parts[0] || `Вариант ${idx+1}`).trim().slice(0, 100);
     const description = (parts[1] || '').trim() || undefined;
     const emojiSrc = (parts[2] || '').trim();
     const selectedToken = (parts[3] || '').trim().toLowerCase();
@@ -86,23 +133,22 @@ function parseListToSelectActionRow(listItem, env){
     const name = resolveEmojiName(emojiSrc, env);
     const isDefault = (selectedToken === 'selected' || selectedToken === 'true' || selectedToken === '1');
     let value = valueToken || label.toLowerCase().replace(/\s+/g,'_');
-    if(!value) value = `opt_${idx+1}`;
+    if (!value) value = `opt_${idx+1}`;
 
     const out = { label, value };
-    if(description) out.description = description;
-    if(name){ out.emoji = { name }; }
-    if(isDefault) out.default = true;
-    return out;
-  });
+    if (description) out.description = description.slice(0,100);
+    if (name) out.emoji = { name };
+    if (isDefault) out.default = true;
+    opts.push(out);
+  }
 
   return {
     type: 'string_select_action_row',
-    custom_id: String(listItem.custom_id || 'select'),
+    custom_id: String(listItem.custom_id || listItem.customId || listItem.id || 'select'),
     placeholder,
     options: opts
   };
 }
-
 function parseTextRatingsToSelectActionRow(text, customId){
   const lines = String(text || '').split(/\n+/).map(s => s.trim()).filter(Boolean);
   const options = [];
@@ -174,7 +220,8 @@ function itemToContainerComponent(item, env){
     };
     if(__emojiSrc){ if(name){ sec.button.emoji = { name }; } }
     if(item.thumbUrl) sec.thumbUrl = String(item.thumbUrl);
-    return sec;
+        if(b && btnIsDisabled(b)) sec.button.disabled = true;
+return sec;
   }
 
   // Buttons → action row
@@ -197,7 +244,8 @@ function itemToContainerComponent(item, env){
         ...(isLink ? { url: String(b.href) } : { custom_id: String(customId) })
       };
       if(name){ btn.emoji = { name }; }
-      row.components.push(btn);
+            if(b && btnIsDisabled(b)) btn.disabled = true;
+row.components.push(btn);
     }
     row.components = row.components.slice(0,5);
     return row;
@@ -221,37 +269,56 @@ function exportContainerJSON(editorEmbed, meta){
 
   if (Number.isFinite(e?.color)) container.accentColor = (e.color >>> 0);
 
-  for(const it of items){
+  for (const it of items) {
     const isFooter = (it.position === 'footer' || it.pos === 'footer' || it.area === 'footer');
-    if(it.type === 'buttons' && isFooter){
+
+    // Footer buttons stay below
+    if (it.type === 'buttons' && isFooter) {
       const row = itemToContainerComponent(it, env);
-      if(row) topLevel.push(row);
+      if (row) topLevel.push(row);
       continue;
     }
-    if(it.type === 'list' && Array.isArray(it.listItems)){
+
+    // Lists -> inline in container; footer lists -> bottom
+    if (
+      it.type === 'list' ||
+      it.type === 'dropdown' || it.type === 'select' || it.type === 'string_select' || it.type === 'select_menu' ||
+      Array.isArray(it?.listItems) || Array.isArray(it?.options) || Array.isArray(it?.items) || Array.isArray(it?.values)
+    ) {
       const selectRow = parseListToSelectActionRow(it, env);
-      if(selectRow && Array.isArray(selectRow.options) && selectRow.options.length){
-        topLevel.push(selectRow);
+      if (selectRow && Array.isArray(selectRow.options) && selectRow.options.length) {
+        if (isFooter) {
+          topLevel.push(selectRow);
+        } else {
+          container.components.push(selectRow);
+        }
         continue;
       }
     }
-    if((it.type === 'text' || it.type === 'section') && it.content){
+
+    // Rating text -> select
+    if ((it.type === 'text' || it.type === 'section') && it.content) {
       const ratingRow = parseTextRatingsToSelectActionRow(it.content, it.custom_id || 'select:rating');
-      if(ratingRow){
+      if (ratingRow) {
         topLevel.push(ratingRow);
         continue;
       }
     }
+
+    // Generic mapping
     const mapped = itemToContainerComponent(it, env);
-    if(mapped) container.components.push(mapped);
+    if (mapped) container.components.push(mapped);
   }
 
   const out = { components: [container, ...topLevel] };
+  try { dbg('container.components len', container.components?.length || 0, 'topLevel len', topLevel.length); } catch {}
+  dbg('exportEmbedV2 out types', Array.isArray(out?.components) ? out.components.map(c => c?.type) : []);
+  dbgGroupEnd();
   return out;
 }
 
 // Public JSON API
-export function exportEmbedV2(editorEmbed, meta={}){
+export function exportEmbedV2(editorEmbed, meta={}){ dbgGroup('exportEmbedV2 start'); dbg({items_len: Array.isArray(editorEmbed?.items)?editorEmbed.items.length:0, color: editorEmbed?.color}); 
   return exportContainerJSON(editorEmbed, meta);
 }
 
@@ -262,9 +329,31 @@ function emojiIdRef(name){
   const n = String(name);
   return isJsIdent(n) ? `emojis.${n}.id` : `emojis[${JSON.stringify(n)}].id`;
 }
-function tsStrKeepTemplates(raw){
-  return '`' + String(raw).replace(/`/g,'\\`') + '`'; // keep ${emojis.*}
+
+// ---- Helper: determine disabled state for buttons (broad schema support) ----
+function btnIsDisabled(b){
+  if (!b || b.url) return false; // link buttons cannot be disabled in Discord
+  if (b.disabled === true || b.isDisabled === true || b.inactive === true) return true;
+  if (b.enabled === false || b.isEnabled === false) return true;
+  if (b.active === false || b.isActive === false) return true;
+  if (b.state === 'disabled' || b.status === 'disabled') return true;
+  return false;
 }
+
+function tsStrKeepTemplates(raw){
+  // Keep template placeholders like ${emojis.*} intact by wrapping in a template literal and escaping backticks
+  return '`' + String(raw).replace(/`/g,'\\`') + '`';
+}
+function jsSingleQuoted(raw){
+  const s = String(raw);
+  return "'" + s.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g,'\\n') + "'";
+}
+function strContentLiteral(raw){
+  // If the content contains a ${...} placeholder, keep it as a template literal; otherwise emit a single-quoted string.
+  if (/\$\{/.test(String(raw))) return tsStrKeepTemplates(raw);
+  return jsSingleQuoted(raw);
+}
+
 function styleToEnum(s){
   switch(String(s||'secondary').toLowerCase()){
     case 'primary': return 'ButtonStyle.Primary';
@@ -274,15 +363,19 @@ function styleToEnum(s){
     default:        return 'ButtonStyle.Secondary';
   }
 }
+
 function buildButtonsInlineTS(buttons){
   const parts = [];
-  for(const b of (buttons||[]).slice(0,5)){
-    const lab = b.label ? `.setLabel(${JSON.stringify(String(b.label))})` : '';
-    const idOr = b.url ? `.setURL(${JSON.stringify(String(b.url))})` : `.setCustomId(${JSON.stringify(String(b.custom_id||'btn:x'))})`;
+  for (const b of (buttons || []).slice(0, 5)) {
+    const lab = b?.label ? `.setLabel(${JSON.stringify(String(b.label))})` : '';
+    const isLinkStyle = String(b?.style || '').toLowerCase() === 'link';
+    const url = isLinkStyle ? (b?.url ? String(b.url) : 'https://discord.gg/rustify') : (b?.url ? String(b.url) : null);
+    const idOr = url ? `.setURL(${JSON.stringify(url)})` : `.setCustomId(${JSON.stringify(String(b.custom_id || 'btn:x'))})`;
     const sty = `.setStyle(${styleToEnum(b.style)})`;
     const emn = b?.emoji?.name ? emojiIdRef(b.emoji.name) : null;
     const emo = emn ? `.setEmoji({ id: ${emn} })` : '';
-    parts.push(`new ButtonBuilder()${lab}${idOr}${sty}${emo}`);
+    const dis = btnIsDisabled(b) ? `.setDisabled(true)` : '';
+    parts.push(`new ButtonBuilder()${lab}${idOr}${sty}${emo}${dis}`);
   }
   return parts.join(',\n      ');
 }
@@ -299,7 +392,7 @@ function buildSelectVarTS(varName, row){
     const def = o.default ? `, default: true` : '';
     return `{ label: ${lab}, value: ${val}${desc}${emo}${def} }`;
   }).join(', ');
-  const options = opts.length ? `.setOptions(${optLines})` : '';
+  const options = opts.length ? `.addOptions(${optLines})` : '';
 
   // No block-scope, no const; assign into outer "let varName"
   return [
@@ -309,8 +402,35 @@ function buildSelectVarTS(varName, row){
     `  ${varName}.addComponents(sel);`
   ].join('\n');
 }
+function buildSelectInlineTS(row){
+  const cid = row.custom_id ? `.setCustomId(${JSON.stringify(String(row.custom_id))})` : `.setCustomId("select")`;
+  const placeholder = row.placeholder ? `.setPlaceholder(${JSON.stringify(String(row.placeholder))})` : '';
+  const opts = Array.isArray(row.options) ? row.options.slice(0,25) : [];
+  const optLines = opts.map(o => {
+    const lab = JSON.stringify(String(o.label||'—'));
+    const val = JSON.stringify(String(o.value||'val'));
+    const desc = o.description ? `, description: ${JSON.stringify(String(o.description))}` : '';
+    const emn = o?.emoji?.name ? emojiIdRef(o.emoji.name) : null;
+    const emo = emn ? `, emoji: { id: ${emn} }` : '';
+    const def = o.default ? `, default: true` : '';
+    return `{ label: ${lab}, value: ${val}${desc}${emo}${def} }`;
+  }).join(', ');
+  const options = opts.length ? `.addOptions(${optLines})` : '';
+  return `new StringSelectMenuBuilder()${cid}${placeholder}${options}`;
+}
 
-export function exportDiscordV2CodeTs(v2, varNames={}){
+
+export function exportDiscordV2CodeTs(v2, varNames={}){ dbgGroup('exportDiscordV2CodeTs start'); try{ dbg('v2 keys', Object.keys(v2||{})); }catch{} 
+  function __dedupeIdsInCode(text){
+    const used = new Map();
+    return String(text).replace(/\.setCustomId\s*\(\s*"([^"]+)"\s*\)/g, (m, id) => {
+      const n = (used.get(id) || 0) + 1;
+      used.set(id, n);
+      const nid = n === 1 ? id : `${id}#${n}`;
+      return `.setCustomId(${JSON.stringify(nid)})`;
+    });
+  }
+
   const comps = Array.isArray(v2?.components) ? v2.components : [];
   const container = comps.find(c => c?.type === 'container') ?? { type: 'container', components: [] };
   const extras = comps.filter(c => c && c !== container);
@@ -324,7 +444,15 @@ export function exportDiscordV2CodeTs(v2, varNames={}){
   lines.push(`const ${contName} = new ContainerBuilder()`);
 
   for(const c of (container.components || [])){
-    if(c.type === 'media'){
+    if (c.type === 'string_select_action_row') {
+      lines.push(`  .addActionRowComponents(row => row`);
+      lines.push(`    .addComponents(`);
+      lines.push(`      ${buildSelectInlineTS(c)}`);
+      lines.push(`    )`);
+      lines.push(`  )`);
+      continue;
+    }
+if(c.type === 'media'){
       lines.push(`  .addMediaGalleryComponents(mediaGallery => mediaGallery`);
       const media = Array.isArray(c.media) ? c.media.slice(0,10) : [];
       if(media.length){
@@ -350,53 +478,57 @@ export function exportDiscordV2CodeTs(v2, varNames={}){
       lines.push(`  .addSeparatorComponents(separator => separator.setDivider(true).setSpacing(SeparatorSpacingSize.Large))`);
       continue;
     }
-    if(c.type === 'section'){
+        if(c.type === 'section'){
       const texts = Array.isArray(c.texts) ? c.texts : [];
-      if (c.thumbUrl) {
-        lines.push(`  .addSectionComponents(section => section`);
+      const hasThumb = !!c.thumbUrl;
+      const hasBtn = !!c.button;
+
+      if(!hasThumb && !hasBtn){
+        // Pure text-only: emit TextDisplay components without a Section wrapper
         for(const t of texts.slice(0,3)){
-          lines.push(`    .addTextDisplayComponents(textDisplay => textDisplay.setContent(${tsStrKeepTemplates(String(t))}))`);
+          lines.push(`  .addTextDisplayComponents(`);
+          lines.push(`    textDisplay => textDisplay`);
+          lines.push(`      .setContent(${strContentLiteral(String(t))}),`);
+          lines.push(`  )`);
         }
-        lines.push(`    .setThumbnailAccessory(thumb => thumb.setURL(${JSON.stringify(String(c.thumbUrl))}))`);
-        if(c.button){
-          const b = c.button;
-          const lab = b.label ? `.setLabel(${JSON.stringify(String(b.label))})` : '';
-          const idOr = b.url ? `.setURL(${JSON.stringify(String(b.url))})` : `.setCustomId(${JSON.stringify(String(b.custom_id||'btn:x'))})`;
-          const sty = `.setStyle(${styleToEnum(b.style)})`;
-          const emn = b?.emoji?.name ? emojiIdRef(b.emoji.name) : null;
-          const emo = emn ? `.setEmoji({ id: ${emn} })` : '';
-          lines.push(`    .setButtonAccessory(btn => btn${lab}${idOr}${sty}${emo})`);
-        }
-        lines.push(`  )`);
         continue;
       }
-      // No thumbnail: still use Section with a right-side button accessory
+
+      // With thumbnail and/or button accessory, keep Section wrapper
       lines.push(`  .addSectionComponents(section => section`);
       for(const t of texts.slice(0,3)){
-        lines.push(`    .addTextDisplayComponents(textDisplay => textDisplay.setContent(${tsStrKeepTemplates(String(t))}))`);
+        lines.push(`    .addTextDisplayComponents(`);
+        lines.push(`      textDisplay => textDisplay`);
+        lines.push(`        .setContent(${strContentLiteral(String(t))}),`);
+        lines.push(`    )`);
       }
-      if(c.button){
+      if (hasThumb) {
+        lines.push(`    .setThumbnailAccessory(thumb => thumb.setURL(${JSON.stringify(String(c.thumbUrl))}))`);
+      }
+      if (hasBtn) {
         const b = c.button;
         const lab = b.label ? `.setLabel(${JSON.stringify(String(b.label))})` : '';
         const idOr = b.url ? `.setURL(${JSON.stringify(String(b.url))})` : `.setCustomId(${JSON.stringify(String(b.custom_id||'btn:x'))})`;
         const sty = `.setStyle(${styleToEnum(b.style)})`;
         const emn = b?.emoji?.name ? emojiIdRef(b.emoji.name) : null;
         const emo = emn ? `.setEmoji({ id: ${emn} })` : '';
-        lines.push(`    .setButtonAccessory(btn => btn${lab}${idOr}${sty}${emo})`);
+        const dis = btnIsDisabled(b) ? `.setDisabled(true)` : '';
+        lines.push(`    .setButtonAccessory(btn => btn${lab}${idOr}${sty}${emo}${dis})`);
       }
       lines.push(`  )`);
       continue;
     }
     if(c.type === 'text'){
-      lines.push(`  .addSectionComponents(section => section`);
-      lines.push(`    .addTextDisplayComponents(textDisplay => textDisplay.setContent(${tsStrKeepTemplates(String(c.text||''))}))`);
+      lines.push(`  .addTextDisplayComponents(`);
+      lines.push(`    textDisplay => textDisplay`);
+      lines.push(`      .setContent(${strContentLiteral(String(c.text||''))}),`);
       lines.push(`  )`);
       continue;
     }
   }
 
   // Declare outer lets to avoid block scoping issues
-  const afterBlocks = [];
+  const afterBlocks = []; dbg('extras', extras?.map(e=>e?.type));
   let haveButtonsRow = false;
   let haveSelectRow = false;
 
@@ -425,23 +557,29 @@ export function exportDiscordV2CodeTs(v2, varNames={}){
 
   const sendLine = `await interaction.editReply({
   flags: MessageFlags.IsComponentsV2,
-  components: [exampleContainer]
+  components: [exampleContainer, selectRow, buttonsRow].filter(Boolean)
 })`;
 
-  return [
+  const __code = __dedupeIdsInCode([
     lines.join('\n'),
+    ...afterBlocks,
     sendLine
-  ].join('\n');
+  ].join('\n'));
+  dbg('code length', __code?.length);
+  dbgGroupEnd();
+  return __code;
+
 }
 
 // ---- Back-compat alias ----
-export function exportEmbedCode(editorEmbed, meta={}){
-  const v2 = exportEmbedV2(editorEmbed, meta);
-  return exportDiscordV2CodeTs(v2);
+export function exportEmbedCode(editorEmbed, meta={}){ dbgGroup('exportEmbedCode start'); 
+  dbg('editorEmbed items', Array.isArray(editorEmbed?.items)?editorEmbed.items.length:0);
+  const v2 = exportEmbedV2(editorEmbed, meta); dbg('v2 components', Array.isArray(v2?.components)?v2.components.length:0);
+  try { const code = exportDiscordV2CodeTs(v2); dbg('final code length', code?.length); dbgGroupEnd(); return code; } catch(e){ console.error('[EXPORTER] exportEmbedCode ERROR', e); dbgGroupEnd(); throw e; }
 }
 
 // ---------------- Download helper ----------------
-export function downloadText(text, filename='export.ts'){
+export function downloadText(text, filename='export.ts'){ dbg('downloadText', {filename, length: (text? String(text).length : 0)}); 
   try{
     const blob = new Blob([text], {type:'text/plain;charset=utf-8'});
     const a = document.createElement('a');

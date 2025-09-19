@@ -1,4 +1,5 @@
 import { APP_ID, logGlobalEmojiPath } from './appconfig.js';
+import { sendToBot } from './lib/sendToBot.js';
 // == Build note ==// --- 3-state pill toggle for statuses: "Готово" | "В работе" | "Ожидание"
 
 // ---- auto-prune helpers (remove empty blocks) ----
@@ -213,6 +214,24 @@ const sanitizeButton = (btn = {}) => ({
  linkToMiniEmbedId: (typeof btn?.linkToMiniEmbedId === 'string' ? btn.linkToMiniEmbedId : ''),
 });
 
+// --- Runtime URL resolver to reflect on-the-fly emoji URL changes in UI ---
+// Fixes a case when UI still holds a stale button object with old URLs,
+// while Firestore and embeds were updated.
+function resolveUrlWithReplacements(u) {
+  try {
+    const s = (typeof u === 'string') ? u.trim() : '';
+    if (!s) return s;
+    const arr = (window && window.__EmojiUrlReplacements) ? window.__EmojiUrlReplacements : [];
+    if (Array.isArray(arr)) {
+      for (let i = arr.length - 1; i >= 0; i--) {
+        const r = arr[i];
+        if (r && r.oldUrl === s) return r.newUrl || s;
+      }
+    }
+    return s;
+  } catch { return u; }
+}
+
 const sanitizeItems = (items, defaultUrl) => {
  if (!Array.isArray(items)) return [];
  return items.map(item => {
@@ -410,26 +429,6 @@ function AuthProfileBar() {
 function InnerApp() {
   // --- Live subscribe for embed statuses ---
   const [remoteEmbedStatuses, setRemoteEmbedStatuses] = React.useState({});
-  React.useEffect(() => {
-    try {
-      const _db = db || firebaseDb;
-      const current = (firebaseAuth && firebaseAuth.currentUser) ? firebaseAuth.currentUser : null;
-      const devNow = current && (current.uid === DEV_UID || current.email === DEV_EMAIL);
-      const _uid = devNow ? OWNER_UID : (current ? current.uid : null);
-      if (!_db || !_uid) return;
-      const colRef = collection(_db, `artifacts/${APP_ID}/users/${_uid}/embedStatuses`);
-      const unsub = onSnapshot(colRef, (qs) => {
-        const m = {};
-        qs.forEach(docSnap => {
-          const d = docSnap.data();
-          if (d && typeof d.status === "string") m[docSnap.id] = d.status;
-        });
-        setRemoteEmbedStatuses(m);
-      });
-      return () => { try { unsub && unsub(); } catch {} };
-    } catch (e) { console.error("subscribe embedStatuses:", e); }
-  }, [appId]);
-
  // --- Firebase State ---
  const [db, setDb] = useState(null);
  const OWNER_UID = "CbDBpHybZeebVrj3BpeRUxrXBhq1";
@@ -440,6 +439,27 @@ function InnerApp() {
  const [loadingStatus, setLoadingStatus] = useState('initializing'); // 'initializing', 'loading', 'ready', 'error'
  const savesCollectionRef = useRef(null);
  
+ const [currentSaveName, setCurrentSaveName] = useState("");
+  React.useEffect(() => {
+    try {
+      const _db = db || firebaseDb;
+      const current = (firebaseAuth && firebaseAuth.currentUser) ? firebaseAuth.currentUser : null;
+      const devNow = current && (current.uid === DEV_UID || current.email === DEV_EMAIL);
+      const _uid = devNow ? OWNER_UID : (current ? current.uid : null);
+      if (!_db || !_uid || !currentSaveName) return;
+      const colRef = collection(_db, `artifacts/${APP_ID}/users/${_uid}/embedBuilderSaves/${currentSaveName}/embedStatuses`);
+      const unsub = onSnapshot(colRef, (qs) => {
+        const m = {};
+        qs.forEach(docSnap => {
+          const d = docSnap.data();
+          if (d && typeof d.status === "string") m[docSnap.id] = d.status;
+        });
+        setRemoteEmbedStatuses(m);
+      });
+      return () => { try { unsub && unsub(); } catch {} };
+    } catch (e) { console.error("subscribe embedStatuses:", e); }
+  }, [appId, db, userId, currentSaveName]);
+
  // --- Save/Load State ---
  const [savedStates, setSavedStates] = useState/** @type {SaveState[]} */([]);
  const [isLoadedProject, setIsLoadedProject] = useState(false);
@@ -462,7 +482,6 @@ function InnerApp() {
  const [saveName, setSaveName] = useState("");
  const [statusMessage, setStatusMessage] = useState("");
  const [deleteConfirmId, setDeleteConfirmId] = useState(null);
- const [currentSaveName, setCurrentSaveName] = useState("");
  const [isRefreshing, setIsRefreshing] = useState(false);
  const [showNewEmbedModal, setShowNewEmbedModal] = useState(false);
  const [newEmbedName, setNewEmbedName] = useState("");
@@ -777,6 +796,7 @@ async function persistEmbedStatus(nextStatus) {
     if (savesSnap.empty) {
       try { showToast && showToast("Сначала сохраните проект", "error"); } catch {}
       return;
+    if (!currentSaveName) { try { showToast && showToast("Сначала сохраните проект", "error"); } catch {} return; }
     }
 
     // Normalize status to canonical form for rules
@@ -784,7 +804,7 @@ async function persistEmbedStatus(nextStatus) {
     const canonical = map[nextStatus] || nextStatus;
 
     // Write to lightweight subcollection
-    const statusDocRef = doc(collection(_db, `artifacts/${APP_ID}/users/${_uid}/embedStatuses`), embedId);
+    const statusDocRef = doc(collection(_db, `artifacts/${APP_ID}/users/${_uid}/embedBuilderSaves/${currentSaveName}/embedStatuses`), embedId);
     await setDoc(statusDocRef, { status: canonical, updatedAt: Date.now() }, { merge: true });
   } catch (e) {
     console.error("persistEmbedStatus failed:", e);
@@ -1879,32 +1899,142 @@ try { window.RustifyToast && window.RustifyToast.show('success','Эмодзи у
  const startRenameEmoji = (old) => setEmojiRename({ old, value: old });
  const cancelRenameEmoji = () => setEmojiRename(null);
  const saveRenameEmoji = () => {
-  
-if (!emojiRename) return;
-const newName = (emojiRename.value || '').trim();
-if (!newName) { setEmojiRename(null); return; }
-if (/[^a-z0-9_]/i.test(newName)) { return; }
-let targetUrl = null;
-try {
-  const target = (Array.isArray(customEmojis) ? customEmojis : []).find(e => e.name === emojiRename.old);
-  targetUrl = target?.url || null;
-  if (targetUrl && window?.RustifyEmojiStore?.addOrUpdate) {
-    window.RustifyEmojiStore.addOrUpdate(targetUrl, newName);
-  } else {
-    // Fallback: rewrite the store
-    const store = window?.RustifyEmojiStore?.getAll ? (window.RustifyEmojiStore.getAll() || []) : [];
-    const nextStore = Array.isArray(store) ? store.map(e => (String(e?.urls?.[0]||'') === String(targetUrl||'') ? { ...e, name: newName } : e)) : [];
-    if (window?.RustifyEmojiStore?.setAll) window.RustifyEmojiStore.setAll(nextStore);
+  if (!emojiRename) return;
+  const oldName = String(emojiRename.old || '').trim();
+  const newName = String(emojiRename.value || '').trim();
+  if (!newName) { setEmojiRename(null); return; }
+  if (/[^a-z0-9_]/i.test(newName)) { return; }
+  if (!oldName) { setEmojiRename(null); return; }
+  if (oldName === newName) {
+    // Nothing to change
+    try { window.RustifyToast && window.RustifyToast.show('info','Имя эмодзи не изменилось'); } catch {}
+    setEmojiRename(null);
+    return;
   }
-} catch {}
-// Update UI deterministically
-const next = (Array.isArray(customEmojis) ? customEmojis : []).map(e => (e && e.name === emojiRename.old ? { ...e, name: newName } : e));
-setCustomEmojis(next);
-setGlobalFromStore(next);
-try { queueSaveGlobal && queueSaveGlobal.cancel && queueSaveGlobal.cancel(); } catch {}
-try { window.RustifyToast && window.RustifyToast.show('success','Эмодзи переименован и сохранён'); } catch {}
-setEmojiRename(null);
-};
+  // Prevent duplicate names
+  try {
+    const exists = (Array.isArray(customEmojis) ? customEmojis : []).some(e => e && e.name === newName);
+    if (exists) {
+      try { window.RustifyToast && window.RustifyToast.show('error','Эмодзи с таким именем уже есть'); } catch {}
+      return;
+    }
+  } catch {}
+
+  let targetUrl = null;
+  try {
+    const target = (Array.isArray(customEmojis) ? customEmojis : []).find(e => e && e.name === oldName);
+    targetUrl = target?.url || null;
+    if (targetUrl && window?.RustifyEmojiStore?.addOrUpdate) {
+      window.RustifyEmojiStore.addOrUpdate(targetUrl, newName);
+    } else {
+      // Fallback: rewrite the store
+      const store = window?.RustifyEmojiStore?.getAll ? (window.RustifyEmojiStore.getAll() || []) : [];
+      const nextStore = Array.isArray(store) ? store.map(e => (String(e?.urls?.[0]||'') === String(targetUrl||'') ? { ...e, name: newName } : e)) : [];
+      if (window?.RustifyEmojiStore?.setAll) window.RustifyEmojiStore.setAll(nextStore);
+    }
+  } catch {}
+
+  // Update UI list deterministically
+  const next = (Array.isArray(customEmojis) ? customEmojis : []).map(e => (e && e.name === oldName ? { ...e, name: newName } : e));
+  setCustomEmojis(next);
+  setGlobalFromStore(next);
+  try { queueSaveGlobal && queueSaveGlobal.cancel && queueSaveGlobal.cancel(); } catch {}
+
+  // === Replace :old: -> :new: in all content fields across current UI state ===
+  const reToken = new RegExp(':' + oldName + ':', 'g');
+  const newToken = ':' + newName + ':';
+
+  const replaceNameTokensInItems = (items) => {
+    if (!Array.isArray(items)) return items;
+    return items.map(it => {
+      if (!it) return it;
+      if (it.type === 'text' || it.type === 'text-with-button') {
+        const content = (typeof it.content === 'string') ? it.content.replace(reToken, newToken) : it.content;
+        return (it.type === 'text')
+          ? { ...it, content }
+          : { ...it, content, button: it.button || {} };
+      }
+      if (it.type === 'list') {
+        const listItems = Array.isArray(it.listItems) ? it.listItems.map(s => {
+          try { return String(s).replace(reToken, newToken); } catch { return s; }
+        }) : it.listItems;
+        return { ...it, listItems };
+      }
+      if (it.type === 'buttons') {
+        const buttons = Array.isArray(it.buttons) ? it.buttons.map(b => ({
+          ...b,
+          label: (typeof b?.label === 'string') ? b.label.replace(reToken, newToken) : b?.label
+        })) : it.buttons;
+        return { ...it, buttons };
+      }
+      return it;
+    });
+  };
+
+  setEmbeds(prev => {
+    const next = (Array.isArray(prev) ? prev : []).map(em => {
+      if (!em) return em;
+      const items = replaceNameTokensInItems(em.items || []);
+      const miniEmbeds = Array.isArray(em.miniEmbeds) ? em.miniEmbeds.map(m => ({
+        ...m,
+        items: replaceNameTokensInItems(m.items || [])
+      })) : em.miniEmbeds;
+      return { ...em, items, miniEmbeds };
+    });
+    return next;
+  });
+
+  // === Firestore persistence: update :old: -> :new: across ALL user's saves ===
+  (async () => {
+    try {
+      const _db = db || firebaseDb;
+      const _uid = (typeof userId === 'string' && userId) ? userId : (firebaseAuth?.currentUser?.uid || null);
+
+      if (!_db || !_uid) {
+        try { window.RustifyToast && window.RustifyToast.show('error','Firebase: не удалось определить пользователя (userId)'); } catch(_){}
+      } else {
+        const basePath = `artifacts/${APP_ID}/users/${_uid}/embedBuilderSaves`;
+        const colRef = collection(_db, basePath);
+
+        const __replace = replaceNameTokensInItems;
+        const qs = await getDocs(colRef);
+        let updatedDocs = 0;
+        for (const docSnap of qs.docs) {
+          const data = docSnap.data() || {};
+          const embeds = Array.isArray(data.embeds) ? data.embeds : [];
+
+          const nextEmbeds = embeds.map((em) => {
+            if (!em) return em;
+            const items = __replace(em.items || []);
+            const miniEmbeds = Array.isArray(em.miniEmbeds)
+              ? em.miniEmbeds.map((m) => ({ ...m, items: __replace(m.items || []) }))
+              : em.miniEmbeds;
+            return { ...em, items, miniEmbeds };
+          });
+
+          const noChange = JSON.stringify(embeds) === JSON.stringify(nextEmbeds);
+          if (!noChange) {
+            const payload = stripUndefinedDeep({ embeds: nextEmbeds });
+            await setDoc(doc(colRef, docSnap.id), payload, { merge: true });
+            updatedDocs++;
+          }
+        }
+
+        if (updatedDocs > 0) {
+          try { window.RustifyToast && window.RustifyToast.show('success', `Firebase: имя эмодзи заменено в ${updatedDocs} проект(ах)`); } catch(_){}
+        } else {
+          try { window.RustifyToast && window.RustifyToast.show('info', 'Firebase: изменений в проектах не найдено'); } catch(_){}
+        }
+      }
+    } catch (e) {
+      console.warn('Firestore multi-save update after emoji rename failed', e);
+      try { window.RustifyToast && window.RustifyToast.show('error','Firebase: ошибка при обновлении всех проектов'); } catch(_){}
+    }
+  })();
+
+  try { window.RustifyToast && window.RustifyToast.show('success','Эмодзи переименован, токены обновлены'); } catch {}
+  setEmojiRename(null);
+};;
 const setEmojiIdManual = (name) => {
   
 try {
@@ -1925,6 +2055,173 @@ try {
   try { window.RustifyToast && window.RustifyToast.show('success','ID эмодзи сохранён'); } catch {}
 } catch {}
 };
+
+
+const updateEmojiUrl = async (name) => {
+  try {
+    const trimmed = String(name || '').trim();
+    if (!trimmed) return;
+    const cur = (Array.isArray(customEmojis) ? customEmojis : []).find(e => e && e.name === trimmed);
+    const currentUrl = (cur && (cur.url || '')) || '';
+    const next = window.prompt('Новый URL для эмодзи :' + trimmed + ':', currentUrl);
+    if (next === null) return; // cancel
+    const newUrl = String(next).trim();
+
+    try {
+      window.__EmojiUrlReplacements = Array.isArray(window.__EmojiUrlReplacements) ? window.__EmojiUrlReplacements : [];
+      window.__EmojiUrlReplacements.push({ oldUrl, newUrl, at: Date.now() });
+      try { window.dispatchEvent(new CustomEvent('emoji-url-updated', { detail: { oldUrl, newUrl } })); } catch {}
+      if (window.__EmojiUrlReplacements.length > 50) window.__EmojiUrlReplacements.splice(0, window.__EmojiUrlReplacements.length - 50);
+    } catch {}
+
+    if (!newUrl) return;
+
+    const oldUrl = currentUrl;
+
+    const updatedList = (Array.isArray(customEmojis) ? customEmojis : []).map(e => (
+      e && e.name === trimmed ? { ...e, url: newUrl } : e
+    ));
+    setCustomEmojis(updatedList);
+
+    try {
+      const store = (typeof window !== 'undefined') ? window.RustifyEmojiStore : null;
+      if (store && typeof store.updateUrl === 'function') {
+        store.updateUrl(oldUrl, newUrl, trimmed);
+      } else if (store && typeof store.addOrUpdate === 'function') {
+        if (typeof store.removeByUrl === 'function') {
+          try { store.removeByUrl(oldUrl); } catch {}
+        } else if (typeof store.getAll === 'function' && typeof store.setAll === 'function') {
+          const arr = store.getAll() || [];
+          const nextArr = Array.isArray(arr) ? arr.filter(e => String(e?.urls?.[0]||'') !== String(oldUrl)) : [];
+          store.setAll(nextArr);
+        }
+        store.addOrUpdate(newUrl, trimmed);
+      } else if (store && typeof store.getAll === 'function' && typeof store.setAll === 'function') {
+        const arr = store.getAll() || [];
+        const nextArr = Array.isArray(arr) ? arr.map(e => {
+          if ((e && (e.name === trimmed)) || (String(e?.urls?.[0]||'') === String(oldUrl))) {
+            return { ...e, urls: [newUrl] };
+          }
+          return e;
+        }) : [];
+        store.setAll(nextArr);
+      }
+    } catch (e) { console.warn('EmojiStore updateUrl failed', e); }
+
+    try { setGlobalFromStore(updatedList); } catch {}
+
+    const replaceInItems = (items) => {
+      if (!Array.isArray(items)) return items;
+      return items.map(it => {
+        if (!it) return it;
+        if (it.type === 'buttons') {
+          const buttons = Array.isArray(it.buttons) ? it.buttons.map(b => ({
+            ...b,
+            leftEmojiUrl: (b.leftEmojiUrl === oldUrl ? newUrl : b.leftEmojiUrl),
+            rightEmojiUrl: (b.rightEmojiUrl === oldUrl ? newUrl : b.rightEmojiUrl),
+            emojiUrl: (b.emojiUrl === oldUrl ? newUrl : b.emojiUrl),
+          })) : it.buttons;
+          return { ...it, buttons };
+        }
+        if (it.type === 'text-with-button') {
+          const b = it.button || {};
+          const nb = {
+            ...b,
+            leftEmojiUrl: (b.leftEmojiUrl === oldUrl ? newUrl : b.leftEmojiUrl),
+            rightEmojiUrl: (b.rightEmojiUrl === oldUrl ? newUrl : b.rightEmojiUrl),
+            emojiUrl: (b.emojiUrl === oldUrl ? newUrl : b.emojiUrl),
+          };
+          return { ...it, button: nb };
+        }
+        if (it.type === 'text') {
+          const thumbUrl = (it.thumbUrl === oldUrl ? newUrl : it.thumbUrl);
+          return { ...it, thumbUrl };
+        }
+        if (it.type === 'list') {
+          const listItems = Array.isArray(it.listItems) ? it.listItems.map(s => {
+            try {
+              const parts = String(s).split('|');
+              if (parts.length >= 3 && parts[2] === oldUrl) parts[2] = newUrl;
+              return parts.join('|');
+            } catch { return s; }
+          }) : it.listItems;
+          return { ...it, listItems };
+        }
+        return it;
+      });
+    };
+
+    setEmbeds(prev => {
+      const next = (Array.isArray(prev) ? prev : []).map(em => {
+        if (!em) return em;
+        const items = replaceInItems(em.items || []);
+        const miniEmbeds = Array.isArray(em.miniEmbeds) ? em.miniEmbeds.map(m => ({
+          ...m,
+          items: replaceInItems(m.items || [])
+        })) : em.miniEmbeds;
+        return { ...em, items, miniEmbeds };
+      });
+      return next;
+    });
+
+            // === Firestore persistence: update 'embeds' across ALL user's saves ===
+    try {
+      const _db = db || firebaseDb;
+      const _uid = (typeof userId === 'string' && userId) ? userId : (firebaseAuth?.currentUser?.uid || null);
+
+      if (!_db || !_uid) {
+        try { window.RustifyToast && window.RustifyToast.show('error','Firebase: не удалось определить пользователя (userId)'); } catch(_){}
+      } else {
+        const basePath = `artifacts/${APP_ID}/users/${_uid}/embedBuilderSaves`;
+        const colRef = collection(_db, basePath);
+
+        // Use the same replacer as UI state
+        const __replaceInItems = replaceInItems;
+
+        // Fetch all saves for this user and update embeds in each
+        const qs = await getDocs(colRef);
+        let updatedDocs = 0;
+        for (const docSnap of qs.docs) {
+          const data = docSnap.data() || {};
+          const embeds = Array.isArray(data.embeds) ? data.embeds : [];
+
+          const nextEmbeds = embeds.map((em) => {
+            if (!em) return em;
+            const items = __replaceInItems(em.items || []);
+            const miniEmbeds = Array.isArray(em.miniEmbeds)
+              ? em.miniEmbeds.map((m) => ({ ...m, items: __replaceInItems(m.items || []) }))
+              : em.miniEmbeds;
+            return { ...em, items, miniEmbeds };
+          });
+
+          // Skip write if no change
+          const noChange = JSON.stringify(embeds) === JSON.stringify(nextEmbeds);
+          if (!noChange) {
+            const payload = stripUndefinedDeep({ embeds: nextEmbeds });
+            await setDoc(doc(colRef, docSnap.id), payload, { merge: true });
+            updatedDocs++;
+          }
+        }
+
+        if (updatedDocs > 0) {
+          try { window.RustifyToast && window.RustifyToast.show('success', `Firebase: ссылки эмодзи обновлены в ${updatedDocs} проект(ах)`); } catch(_){}
+        } else {
+          try { window.RustifyToast && window.RustifyToast.show('info', 'Firebase: изменений в проектах не найдено'); } catch(_){}
+        }
+      }
+    } catch(e) {
+      console.warn('Firestore multi-save update after emoji URL change failed', e);
+      try { window.RustifyToast && window.RustifyToast.show('error','Firebase: ошибка при обновлении всех проектов'); } catch(_){}
+    }
+    try { window.RustifyToast && window.RustifyToast.show('success','URL эмодзи обновлён и заменён во всех эмбедах'); } catch {}
+
+  } catch (e) {
+    console.error('updateEmojiUrl failed', e);
+    try { window.RustifyToast && window.RustifyToast.show('error', 'Ошибка обновления URL'); } catch {}
+  }
+};
+
+
 
  // --- Derived current editing items ---
  const currentBtn = useMemo(() => {
@@ -2620,7 +2917,7 @@ try {
  <button onClick={saveRenameEmoji} className="text-xs text-green-500 hover:text-green-400 font-semibold h-9 flex items-center justify-center focus:outline-none focus:border-none focus-visible:outline-none focus-visible:border-none focus:ring-0 focus-visible:ring-0">Сохранить</button>
  <button onClick={cancelRenameEmoji} className="text-xs text-white/60 hover:text-white/80 h-9 flex items-center justify-center focus:outline-none focus:border-none focus-visible:outline-none focus-visible:border-none focus:ring-0 focus-visible:ring-0">Отмена</button>
  </>
- ) : (<><button onClick={() => startRenameEmoji(emoji.name)} className="text-xs text-blue-400 hover:text-blue-300 font-semibold">Переименовать</button>
+ ) : (<><button onClick={() => startRenameEmoji(emoji.name)} className="text-xs text-blue-400 hover:text-blue-300 font-semibold">Переименовать</button> <button onClick={() => updateEmojiUrl(emoji.name)} className="text-xs text-amber-400 hover:text-amber-300 font-semibold">URL</button>
  </>
  )}
  <button onClick={() => deleteCustomEmoji(emoji.name)} className="text-xs text-red-500 hover:text-red-400 font-semibold">Удалить</button>
@@ -3617,8 +3914,8 @@ function TextBlockView({ block, customEmojis = [] }) {
 function ButtonChip({ btn, colors, onEdit, previewMode, onEmbedLinkClick, onModalLinkClick, onMiniEmbedLinkClick , hoveringForComment}) {
  const safeBtn = (btn && typeof btn === 'object') ? btn : {};
  const style = ['primary','success','danger','link','secondary'].includes(safeBtn.style) ? safeBtn.style : 'secondary';
- const leftEmojiUrl = typeof safeBtn.leftEmojiUrl === 'string' && safeBtn.leftEmojiUrl.trim() ? safeBtn.leftEmojiUrl : undefined;
- const rightEmojiUrl = typeof safeBtn.rightEmojiUrl === 'string' && safeBtn.rightEmojiUrl.trim() ? safeBtn.rightEmojiUrl : undefined;
+ const leftEmojiUrl = resolveUrlWithReplacements(typeof safeBtn.leftEmojiUrl === 'string' && safeBtn.leftEmojiUrl.trim() ? safeBtn.leftEmojiUrl : undefined);
+ const rightEmojiUrl = resolveUrlWithReplacements(typeof safeBtn.rightEmojiUrl === 'string' && safeBtn.rightEmojiUrl.trim() ? safeBtn.rightEmojiUrl : undefined);
  const base = `rounded-md inline-flex items-center justify-center text-sm font-medium h-9 px-4 select-none transition outline-none`;
  const visual = (style === 'primary') ? colors.primaryBtn
  : (style === 'success') ? colors.successBtn
@@ -3670,7 +3967,21 @@ function ButtonEditor({ initial, onSave, onDelete, embeds = [], currentEmbedId ,
  const { isReadOnlyDev } = React.useContext(AuthUiContext);
 const [label, setLabel] = useState(initial?.label || "");
  const [leftEmojiUrl, setLeftEmojiUrl] = useState(initial?.leftEmojiUrl || "");
- const [style, setStyle] = useState((['primary','success','danger','link','secondary'].includes(initial?.style) ? initial.style : 'secondary'));
+ 
+ // Sync UI when global emoji URL changes elsewhere
+ React.useEffect(() => {
+   const onEmojiUrlUpdated = (e) => {
+     try {
+       const det = e?.detail || {};
+       const { oldUrl, newUrl } = det;
+       setLeftEmojiUrl((prev) => (prev === oldUrl ? newUrl : prev));
+       setRightEmojiUrl((prev) => (prev === oldUrl ? newUrl : prev));
+     } catch {}
+   };
+   window.addEventListener('emoji-url-updated', onEmojiUrlUpdated);
+   return () => window.removeEventListener('emoji-url-updated', onEmojiUrlUpdated);
+ }, []);
+const [style, setStyle] = useState((['primary','success','danger','link','secondary'].includes(initial?.style) ? initial.style : 'secondary'));
  const [active, setActive] = useState(initial?.active !== false);
  const [linkToEmbedId, setLinkToEmbedId] = useState(initial?.linkToEmbedId || "");
 
@@ -3692,7 +4003,7 @@ return (
  <div className="mt-2">
  <label className="text-xs uppercase tracking-wide opacity-70">Emoji слева — URL</label>
  <input
- value={leftEmojiUrl}
+ value={resolveUrlWithReplacements(leftEmojiUrl)}
  onChange={(e) => setLeftEmojiUrl(e.target.value)}
  className="mt-1 w-full rounded-lg border border-[#202225] bg-transparent px-3 py-2 text-sm outline-none"
  placeholder="https://..."
@@ -4535,6 +4846,53 @@ function DevInspectBar({ currentEmbed, parentEmbed, embeds, activeEmbedId }) {
     alert('Export v2: произошла ошибка');
   }
 };
+
+const handleExportV2Send = async () => {
+  const embed = resolveEmbed();
+  if (!embed) return alert('Сначала выбери/создай эмбед');
+
+  const emojiSource =
+    (typeof customEmojis !== 'undefined' && customEmojis) ||
+    (typeof window !== 'undefined' && window.customEmojis) || {};
+
+  try {
+    let code = null;
+    if (typeof exportEmbedCodeV2 === 'function') {
+      code = exportEmbedCodeV2(embed, { customEmojis: emojiSource });
+      console.log('[Export & Send] path=exportEmbedCodeV2');
+    } else if (typeof exportEmbedV2V2 === 'function' && typeof exportDiscordV2CodeTsPatched === 'function') {
+      const v2json = exportEmbedV2V2(embed, { customEmojis: emojiSource });
+      code = exportDiscordV2CodeTsPatched(v2json);
+      console.log('[Export & Send] path=exportEmbedV2V2 -> exportDiscordV2CodeTsPatched');
+    } else if (typeof window !== 'undefined' && window.RustifyExport) {
+      const RX = window.RustifyExport;
+      if (typeof RX.exportEmbedCode === 'function') {
+        code = RX.exportEmbedCode(embed, { customEmojis: emojiSource });
+        console.log('[Export & Send] path=window.RustifyExport.exportEmbedCode');
+      } else if (typeof RX.exportEmbedV2 === 'function' && typeof RX.exportDiscordV2CodeTs === 'function') {
+        const v2json = RX.exportEmbedV2(embed, { customEmojis: emojiSource });
+        code = RX.exportDiscordV2CodeTs(v2json);
+        console.log('[Export & Send] path=window.RustifyExport.exportEmbedV2->exportDiscordV2CodeTs');
+      }
+    }
+    if (!code) throw new Error('Экспортер v2 не найден/не подключён');
+
+    const slug = (embed.slug || embed.name || embed.id || 'rustify_embed')
+      .toString().replace(/\s+/g,'_').toLowerCase();
+    const filename = slug + '.embed.v2.js';
+
+    const projectId = (typeof currentSaveName === 'string' && currentSaveName) ? currentSaveName : undefined;
+    const embedId = (typeof activeMiniEmbedId !== 'undefined' && activeMiniEmbedId != null) ? activeMiniEmbedId : (typeof activeEmbedId !== 'undefined' ? activeEmbedId : undefined);
+
+    await sendToBot({ code, filename, projectId, embedId });
+    try { window.RustifyToast?.show('success', 'Экспорт отправлен в бота'); } catch {}
+  } catch (e) {
+    console.error('Export & Send failed', e);
+    try { window.RustifyToast?.show('error', 'Не удалось отправить в бота'); } catch {}
+    alert('Export & Send: ошибка. Проверь .env.local и доступность /api/embed/import');
+  }
+};
+
 const handleExportTSV2 = () => {
     const embed = resolveEmbed();
     if (!embed) return alert('Сначала выбери/создай эмбед');
@@ -4550,6 +4908,7 @@ const handleExportTSV2 = () => {
       <button onClick={handleExportV2} className="px-3 h-8 rounded bg-[#5865F2] hover:bg-[#4752C4] text-white">JSON</button>
       <button onClick={handleExportTSV2} className="px-3 h-8 rounded bg-[#6a8aec] hover:bg-[#536de0] text-white">Components</button>
       <button onClick={handleExportV2Top} className="px-3 h-8 rounded bg-[#6a8aec] hover:bg-[#536de0] text-white">Export v2</button>
+      <button onClick={handleExportV2Send} className="px-3 h-8 rounded bg-[#22c55e] hover:bg-[#16a34a] text-white">Отправить в бота</button>
     </div>
   );
 }
