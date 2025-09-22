@@ -772,8 +772,8 @@ const setModals = (updater) => {
 
 // === Status helper: updates 'status' in the current embed ===
 function setEmbedStatus(status) {
-  const ok = ['done','inprogress','waiting',null,undefined];
-  const s = ok.includes(status) ? status : 'waiting';
+  const ok = ['done','inprogress','pending',null,undefined];
+  const s = ok.includes(status) ? status : 'pending';
   updateCurrentEmbed({ status: s });
 }
 
