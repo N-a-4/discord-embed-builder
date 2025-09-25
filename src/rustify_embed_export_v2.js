@@ -508,7 +508,9 @@ if(c.type === 'media'){
       if (hasBtn) {
         const b = c.button;
         const lab = b.label ? `.setLabel(${JSON.stringify(String(b.label))})` : '';
-        const idOr = b.url ? `.setURL(${JSON.stringify(String(b.url))})` : `.setCustomId(${JSON.stringify(String(b.custom_id||'btn:x'))})`;
+        const isLinkStyle = String(b?.style || '').toLowerCase() === 'link';
+        const url = isLinkStyle ? (b?.url ? String(b.url) : 'https://discord.gg/rustify') : (b?.url ? String(b.url) : null);
+        const idOr = url ? `.setURL(${JSON.stringify(url)})` : `.setCustomId(${JSON.stringify(String(b.custom_id||'btn:x'))})`;
         const sty = `.setStyle(${styleToEnum(b.style)})`;
         const emn = b?.emoji?.name ? emojiIdRef(b.emoji.name) : null;
         const emo = emn ? `.setEmoji({ id: ${emn} })` : '';

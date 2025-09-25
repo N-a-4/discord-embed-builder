@@ -4906,7 +4906,7 @@ const handleExportTSV2 = () => {
   return (
     <div className="mb-3 p-2 rounded-lg border border-white/10 bg-black/30 flex items-center gap-2 text-xs">
       <button onClick={handleExportV2} className="px-3 h-8 rounded bg-[#5865F2] hover:bg-[#4752C4] text-white">JSON</button>
-      <button onClick={handleExportTSV2} className="px-3 h-8 rounded bg-[#6a8aec] hover:bg-[#536de0] text-white">Components</button>
+      <button onClick={handleExportTSV2} className="px-3 h-8 rounded bg-[#6a8aec] hover:bg-[#536de0] text-white">Export v1</button>
       <button onClick={handleExportV2Top} className="px-3 h-8 rounded bg-[#6a8aec] hover:bg-[#536de0] text-white">Export v2</button>
       <button onClick={handleExportV2Send} className="px-3 h-8 rounded bg-[#22c55e] hover:bg-[#16a34a] text-white">Отправить в бота</button>
     </div>
