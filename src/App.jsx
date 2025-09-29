@@ -1,3 +1,4 @@
+// --- Patch: mini-embed modals persistence fix (2025-09-29 09:08:12) ---
 import { APP_ID, logGlobalEmojiPath } from './appconfig.js';
 import { sendToBot } from './lib/sendToBot.js';
 // == Build note ==// --- 3-state pill toggle for statuses: "Готово" | "В работе" | "Ожидание"
@@ -271,7 +272,20 @@ const sanitizeEmbed = (embed) => {
  name: (me && typeof me.name === 'string') ? me.name : 'Sub',
  imageUrl: (me && me.imageUrl) ? me.imageUrl : imageUrl,
  items: sanitizeItems(me && Array.isArray(me.items) ? me.items : [], (me && me.imageUrl) ? me.imageUrl : imageUrl),
- parentId: (typeof me?.parentId === 'string' || me?.parentId === null) ? me.parentId : (embed.id || null),
+ 
+modals: Array.isArray(me?.modals) ? me.modals.map(m => ({
+  id: (m && typeof m.id === 'string' && m.id) ? m.id : ('m_' + Math.random().toString(36).slice(2,9)),
+  title: (m && typeof m.title === 'string') ? m.title : 'Окно',
+  submitLinkToMiniEmbedId: (typeof m?.submitLinkToMiniEmbedId === 'string' && m.submitLinkToMiniEmbedId) ? m.submitLinkToMiniEmbedId : undefined,
+  fields: Array.isArray(m?.fields) ? m.fields.map(f => ({
+    id: (f && typeof f.id === 'string' && f.id) ? f.id : ('f_' + Math.random().toString(36).slice(2,9)),
+    type: f?.type === 'multiline' ? 'multiline' : 'single',
+    label: typeof f?.label === 'string' ? f.label : '',
+    placeholder: typeof f?.placeholder === 'string' ? f.placeholder : '',
+    rows: (typeof f?.rows === 'number' && f.rows > 0) ? f.rows : 4,
+  })) : []
+})) : [],
+parentId: (typeof me?.parentId === 'string' || me?.parentId === null) ? me.parentId : (embed.id || null),
  })) : [],
 
  modals: Array.isArray(embed.modals) ? embed.modals.map(m => ({
